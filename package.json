@@ -1,0 +1,14 @@
+{
+  "name": "integral-geo-matricula",
+  "version": "1.0.0",
+  "description": "Analise geometrica de matriculas imobiliarias e memoriais descritivos com IA + geoprocessamento deterministico. Integral Solucoes em Engenharia.",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.x"
+  },
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {}
+}
