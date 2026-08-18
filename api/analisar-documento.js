@@ -338,6 +338,13 @@ module.exports = async function handler(req, res) {
   const openAiPayload = {
     model: model,
     instructions: SYSTEM_INSTRUCTIONS,
+    // temperature 0: esta e uma tarefa de EXTRACAO (existe uma unica resposta
+    // correta - o que esta escrito no documento), nao de geracao criativa.
+    // Sem isso a API usa o default (1.0), que introduz variacao aleatoria
+    // entre chamadas identicas - foi o que causou o mesmo documento retornar
+    // 13 vertices numa leitura e 9 em outra. temperature 0 minimiza (nao
+    // elimina 100%, a API nao garante determinismo bit-a-bit) essa variacao.
+    temperature: 0,
     input: [
       {
         role: "user",
