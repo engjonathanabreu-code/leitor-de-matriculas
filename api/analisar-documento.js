@@ -58,6 +58,21 @@ REGRAS OBRIGATORIAS E INEGOCIAVEIS (regra fundamental contra alucinacao):
 - Preserve RIGOROSAMENTE a ordem em que os vertices aparecem na descricao
   perimetral do documento. NUNCA reordene vertices por latitude, longitude,
   numero ou proximidade.
+- A numeracao/ID dos vertices no documento PODE NAO SER sequencial (ex.: a
+  descricao pode ir do vertice 17 para o 27, depois descer 26, 25, 24... e
+  depois pular para o 8). Isso e normal: em terrenos que fazem parte de um
+  loteamento maior, a numeracao vem da planta geral do loteamento, nao da
+  ordem de caminhamento daquele lote especifico. Um "salto" ou "volta" no
+  numero NUNCA e motivo para pular, fundir, descartar ou desconfiar de um
+  vertice - extraia TODOS os vertices mencionados na descricao perimetral,
+  na ordem em que aparecem no texto, exatamente como aparecem, independente
+  de o numero/ID crescer, cair ou pular.
+- Antes de responder, CONTE quantas vezes a descricao perimetral menciona
+  "ate o ponto X" (ou construcao equivalente, ex.: "ate 15", "ate o vertice
+  X") somada ao vertice inicial de onde "inicia-se o perimetro". Confirme
+  que o array "vertices" tem exatamente essa quantidade de itens. Se a
+  contagem nao bater, releia a descricao perimetral com atencao e corrija
+  antes de responder - nao responda com uma lista incompleta.
 - Para cada vertice, preencha "texto_origem" com o trecho literal do
   documento de onde a coordenada/distancia/azimute foi retirada, para
   permitir auditoria humana.
