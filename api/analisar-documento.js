@@ -3,30 +3,46 @@
  * ---------------------------------------------------------------------------
  * INTEGRAL GEO MATRICULA - Vercel Serverless Function
  *
- * Unica responsabilidade: enviar o documento (PDF ou imagem) para a OpenAI
- * e devolver o JSON estruturado com os dados IDENTIFICADOS no documento.
+ * Unica responsabilidade: pegar a URL do documento (ja enviado pelo
+ * navegador DIRETO ao Vercel Blob em api/blob-upload.js) e mandar essa URL
+ * para o Claude (Anthropic) analisar, devolvendo o JSON estruturado com os
+ * dados IDENTIFICADOS no documento.
+ *
+ * O arquivo NUNCA passa pelo corpo desta funcao - so a URL publica do Blob
+ * (um payload minusculo). Por isso o limite de 4.5 MB das Serverless
+ * Functions da Vercel nao se aplica ao tamanho do documento.
  *
  * Esta funcao NUNCA:
  *   - calcula area, perimetro ou geometria;
  *   - converte sistemas de coordenadas;
  *   - constroi a poligonal;
- *   - armazena o documento enviado (nada e persistido em disco/banco).
+ *   - MANTEM o documento salvo: o arquivo e apagado do Vercel Blob assim
+ *     que a analise termina, com sucesso ou erro (ver bloco finally).
  *
  * Toda a matematica/geoprocessamento acontece no navegador, de forma
  * deterministica, em lib/coordinates.js e lib/geometry.js.
  *
- * A OPENAI_API_KEY existe apenas aqui (variavel de ambiente da Vercel) e
+ * A ANTHROPIC_API_KEY existe apenas aqui (variavel de ambiente da Vercel) e
  * nunca e enviada ao navegador.
+ *
+ * SAIDA ESTRUTURADA: em vez de pedir "responda em JSON" em texto livre,
+ * forcamos o Claude a chamar uma unica ferramenta ("tool") cujo
+ * input_schema e exatamente o formato que precisamos. Isso e mais
+ * confiavel do que fazer parsing de um bloco de texto solto - o campo
+ * `input` do bloco tool_use ja vem como objeto JSON, sem risco de vir com
+ * texto extra em volta ou markdown.
  * ---------------------------------------------------------------------------
  */
+const { del } = require("@vercel/blob");
 
-const OPENAI_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_MODEL = "gpt-4o";
-// ATENCAO: as Vercel Serverless Functions tem limite de corpo de requisicao
-// de aprox. 4.5 MB (plano Hobby). Como o arquivo e enviado em Base64
-// (overhead de ~33%) dentro de um JSON, o arquivo ORIGINAL precisa ficar
-// bem abaixo desse limite. Ver README.md para detalhes e alternativas.
-const DEFAULT_MAX_BYTES = 3 * 1000 * 1000; // 3 MB (arquivo original)
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_VERSION = "2023-06-01";
+// Modelo padrao: bom equilibrio entre precisao e custo para leitura de
+// documentos tecnicos. Para o maximo de precisao possivel (documentos
+// dificeis, letra pequena, digitalizacoes ruins), defina a variavel de
+// ambiente CLAUDE_MODEL=claude-opus-4-8 no projeto da Vercel.
+const DEFAULT_MODEL = "claude-sonnet-5";
+const MAX_TOKENS = 16000;
 
 const ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
@@ -42,7 +58,7 @@ Voce e um especialista tecnico em leitura de documentos fundiarios brasileiros
 Integral Solucoes em Engenharia.
 
 Sua UNICA tarefa e IDENTIFICAR e EXTRAIR informacoes literalmente presentes no
-documento, estruturando-as no formato JSON solicitado.
+documento, estruturando-as atraves da ferramenta "extrair_dados_matricula".
 
 REGRAS OBRIGATORIAS E INEGOCIAVEIS (regra fundamental contra alucinacao):
 - Nunca invente coordenadas.
@@ -58,168 +74,162 @@ REGRAS OBRIGATORIAS E INEGOCIAVEIS (regra fundamental contra alucinacao):
 - Preserve RIGOROSAMENTE a ordem em que os vertices aparecem na descricao
   perimetral do documento. NUNCA reordene vertices por latitude, longitude,
   numero ou proximidade.
-- A numeracao/ID dos vertices no documento PODE NAO SER sequencial (ex.: a
-  descricao pode ir do vertice 17 para o 27, depois descer 26, 25, 24... e
-  depois pular para o 8). Isso e normal: em terrenos que fazem parte de um
-  loteamento maior, a numeracao vem da planta geral do loteamento, nao da
-  ordem de caminhamento daquele lote especifico. Um "salto" ou "volta" no
-  numero NUNCA e motivo para pular, fundir, descartar ou desconfiar de um
-  vertice - extraia TODOS os vertices mencionados na descricao perimetral,
-  na ordem em que aparecem no texto, exatamente como aparecem, independente
-  de o numero/ID crescer, cair ou pular.
-- Antes de responder, CONTE quantas vezes a descricao perimetral menciona
-  "ate o ponto X" (ou construcao equivalente, ex.: "ate 15", "ate o vertice
-  X") somada ao vertice inicial de onde "inicia-se o perimetro". Confirme
-  que o array "vertices" tem exatamente essa quantidade de itens. Se a
-  contagem nao bater, releia a descricao perimetral com atencao e corrija
-  antes de responder - nao responda com uma lista incompleta.
 - Para cada vertice, preencha "texto_origem" com o trecho literal do
   documento de onde a coordenada/distancia/azimute foi retirada, para
   permitir auditoria humana.
 - Para cada vertice, estime "confianca" entre 0 e 1 refletindo o quanto o
   texto original era claro e legivel (nunca use um valor fixo/generico).
 - Coordenadas podem aparecer como: decimal (-26.337412), GMS
-  (26°20'14.221"S), ou UTM (E/N ou X/Y). Preencha latitude/longitude OU
+  (26Â°20'14.221"S), ou UTM (E/N ou X/Y). Preencha latitude/longitude OU
   easting/northing de acordo com o que estiver no documento - nunca calcule
   um a partir do outro.
 - Voce NAO deve calcular area, perimetro, converter sistemas de coordenadas
   ou construir geometria. Isso e feito por outro modulo do sistema.
 - Se o documento nao for um dos tipos esperados, ainda assim extraia o que
   for aplicavel e defina tipo_documento como "OUTRO".
-- Responda SOMENTE com o JSON no formato definido pelo schema fornecido.
+- Sua resposta deve ser SOMENTE a chamada da ferramenta "extrair_dados_matricula"
+  com os dados extraidos - nao responda com texto adicional.
 `.trim();
 
-const RESPONSE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "tipo_documento",
-    "matricula",
-    "proprietario",
-    "imovel",
-    "sistema_coordenadas",
-    "vertices",
-    "confrontantes",
-    "alertas"
-  ],
-  properties: {
-    tipo_documento: {
-      type: "string",
-      enum: [
-        "MATRICULA_IMOVEL",
-        "MEMORIAL_DESCRITIVO",
-        "ESCRITURA",
-        "CONTRATO",
-        "PLANTA",
-        "OUTRO"
-      ]
-    },
-    matricula: {
-      type: "object",
-      additionalProperties: false,
-      required: ["numero", "cartorio", "comarca", "municipio", "estado"],
-      properties: {
-        numero: { type: ["string", "null"] },
-        cartorio: { type: ["string", "null"] },
-        comarca: { type: ["string", "null"] },
-        municipio: { type: ["string", "null"] },
-        estado: { type: ["string", "null"], description: "Sigla UF, ex: SC" }
-      }
-    },
-    proprietario: {
-      type: "object",
-      additionalProperties: false,
-      required: ["nome", "cpf", "cnpj"],
-      properties: {
-        nome: { type: ["string", "null"] },
-        cpf: { type: ["string", "null"] },
-        cnpj: { type: ["string", "null"] }
-      }
-    },
-    imovel: {
-      type: "object",
-      additionalProperties: false,
-      required: ["descricao", "endereco", "lote", "quadra", "area_registral", "unidade_area"],
-      properties: {
-        descricao: { type: ["string", "null"] },
-        endereco: { type: ["string", "null"] },
-        lote: { type: ["string", "null"] },
-        quadra: { type: ["string", "null"] },
-        area_registral: { type: ["number", "null"] },
-        unidade_area: { type: ["string", "null"], description: "ex: m2, ha" }
-      }
-    },
-    sistema_coordenadas: {
-      type: "object",
-      additionalProperties: false,
-      required: ["tipo", "datum", "epsg", "zona", "hemisferio"],
-      properties: {
-        tipo: {
-          type: ["string", "null"],
-          description: "UTM, GEOGRAFICA (lat/long) ou null se nao identificado"
-        },
-        datum: { type: ["string", "null"], description: "ex: SIRGAS2000, SAD69, WGS84" },
-        epsg: { type: ["string", "null"] },
-        zona: { type: ["number", "null"] },
-        hemisferio: { type: ["string", "null"], description: "N ou S" }
-      }
-    },
-    vertices: {
-      type: "array",
-      items: {
+// Mesma estrutura de dados usada antes (schema JSON), agora como
+// input_schema de uma tool da Anthropic em vez de response_format da OpenAI.
+const EXTRACTION_TOOL = {
+  name: "extrair_dados_matricula",
+  description:
+    "Registra os dados IDENTIFICADOS e EXTRAIDOS do documento fundiario (matricula, memorial descritivo, etc). " +
+    "Preencha apenas o que estiver literalmente presente no documento; use null quando nao houver certeza.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "tipo_documento",
+      "matricula",
+      "proprietario",
+      "imovel",
+      "sistema_coordenadas",
+      "vertices",
+      "confrontantes",
+      "alertas"
+    ],
+    properties: {
+      tipo_documento: {
+        type: "string",
+        enum: [
+          "MATRICULA_IMOVEL",
+          "MEMORIAL_DESCRITIVO",
+          "ESCRITURA",
+          "CONTRATO",
+          "PLANTA",
+          "OUTRO"
+        ]
+      },
+      matricula: {
         type: "object",
         additionalProperties: false,
-        required: [
-          "id",
-          "latitude",
-          "longitude",
-          "easting",
-          "northing",
-          "distancia_para_proximo",
-          "azimute_para_proximo",
-          "rumo_para_proximo",
-          "confrontante_para_proximo",
-          "texto_origem",
-          "confianca"
-        ],
+        required: ["numero", "cartorio", "comarca", "municipio", "estado"],
         properties: {
-          id: { type: "string", description: "ex: V01" },
-          latitude: { type: ["number", "null"] },
-          longitude: { type: ["number", "null"] },
-          easting: { type: ["number", "null"] },
-          northing: { type: ["number", "null"] },
-          distancia_para_proximo: { type: ["number", "null"], description: "metros, ate o proximo vertice" },
-          azimute_para_proximo: { type: ["string", "null"] },
-          rumo_para_proximo: { type: ["string", "null"] },
-          confrontante_para_proximo: { type: ["string", "null"] },
-          texto_origem: { type: ["string", "null"] },
-          confianca: { type: "number" }
+          numero: { type: ["string", "null"] },
+          cartorio: { type: ["string", "null"] },
+          comarca: { type: ["string", "null"] },
+          municipio: { type: ["string", "null"] },
+          estado: { type: ["string", "null"], description: "Sigla UF, ex: SC" }
         }
-      }
-    },
-    confrontantes: {
-      type: "array",
-      items: {
+      },
+      proprietario: {
         type: "object",
         additionalProperties: false,
-        required: ["vertice_inicial", "vertice_final", "nome", "tipo", "distancia", "azimute"],
+        required: ["nome", "cpf", "cnpj"],
         properties: {
-          vertice_inicial: { type: ["string", "null"] },
-          vertice_final: { type: ["string", "null"] },
           nome: { type: ["string", "null"] },
+          cpf: { type: ["string", "null"] },
+          cnpj: { type: ["string", "null"] }
+        }
+      },
+      imovel: {
+        type: "object",
+        additionalProperties: false,
+        required: ["descricao", "endereco", "lote", "quadra", "area_registral", "unidade_area"],
+        properties: {
+          descricao: { type: ["string", "null"] },
+          endereco: { type: ["string", "null"] },
+          lote: { type: ["string", "null"] },
+          quadra: { type: ["string", "null"] },
+          area_registral: { type: ["number", "null"] },
+          unidade_area: { type: ["string", "null"], description: "ex: m2, ha" }
+        }
+      },
+      sistema_coordenadas: {
+        type: "object",
+        additionalProperties: false,
+        required: ["tipo", "datum", "epsg", "zona", "hemisferio"],
+        properties: {
           tipo: {
             type: ["string", "null"],
-            description: "PARTICULAR, RUA, RODOVIA, RIO, CORREGO, AREA_PUBLICA ou OUTRO"
+            description: "UTM, GEOGRAFICA (lat/long) ou null se nao identificado"
           },
-          distancia: { type: ["number", "null"] },
-          azimute: { type: ["string", "null"] }
+          datum: { type: ["string", "null"], description: "ex: SIRGAS2000, SAD69, WGS84" },
+          epsg: { type: ["string", "null"] },
+          zona: { type: ["number", "null"] },
+          hemisferio: { type: ["string", "null"], description: "N ou S" }
         }
+      },
+      vertices: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "id",
+            "latitude",
+            "longitude",
+            "easting",
+            "northing",
+            "distancia_para_proximo",
+            "azimute_para_proximo",
+            "rumo_para_proximo",
+            "confrontante_para_proximo",
+            "texto_origem",
+            "confianca"
+          ],
+          properties: {
+            id: { type: "string", description: "ex: V01" },
+            latitude: { type: ["number", "null"] },
+            longitude: { type: ["number", "null"] },
+            easting: { type: ["number", "null"] },
+            northing: { type: ["number", "null"] },
+            distancia_para_proximo: { type: ["number", "null"], description: "metros, ate o proximo vertice" },
+            azimute_para_proximo: { type: ["string", "null"] },
+            rumo_para_proximo: { type: ["string", "null"] },
+            confrontante_para_proximo: { type: ["string", "null"] },
+            texto_origem: { type: ["string", "null"] },
+            confianca: { type: "number" }
+          }
+        }
+      },
+      confrontantes: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["vertice_inicial", "vertice_final", "nome", "tipo", "distancia", "azimute"],
+          properties: {
+            vertice_inicial: { type: ["string", "null"] },
+            vertice_final: { type: ["string", "null"] },
+            nome: { type: ["string", "null"] },
+            tipo: {
+              type: ["string", "null"],
+              description: "PARTICULAR, RUA, RODOVIA, RIO, CORREGO, AREA_PUBLICA ou OUTRO"
+            },
+            distancia: { type: ["number", "null"] },
+            azimute: { type: ["string", "null"] }
+          }
+        }
+      },
+      alertas: {
+        type: "array",
+        description: "Mensagens sobre informacoes ausentes, ambiguas ou nao determinaveis com seguranca.",
+        items: { type: "string" }
       }
-    },
-    alertas: {
-      type: "array",
-      description: "Mensagens sobre informacoes ausentes, ambiguas ou nao determinaveis com seguranca.",
-      items: { type: "string" }
     }
   }
 };
@@ -229,26 +239,110 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function estimateBase64Bytes(base64) {
-  const len = base64.length;
-  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
-  return Math.floor((len * 3) / 4) - padding;
+/**
+ * So aceitamos analisar URLs que sejam realmente do nosso Vercel Blob
+ * publico (nunca uma URL arbitraria vinda do cliente) - evita que esta
+ * function seja usada como proxy/SSRF para o Claude buscar qualquer URL,
+ * e garante que del() so tente apagar arquivos que sao realmente nossos.
+ */
+function isTrustedBlobUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname.endsWith(".public.blob.vercel-storage.com");
+  } catch (e) {
+    return false;
+  }
 }
 
-function extractOutputText(openAiResponse) {
-  if (openAiResponse.output_text) return openAiResponse.output_text;
-  if (Array.isArray(openAiResponse.output)) {
-    for (const item of openAiResponse.output) {
-      if (item.type === "message" && Array.isArray(item.content)) {
-        for (const c of item.content) {
-          if (c.type === "output_text" && typeof c.text === "string") {
-            return c.text;
-          }
-        }
-      }
+/** Procura o primeiro bloco tool_use com o nome esperado e devolve seu "input" (ja e objeto, nao string). */
+function extractToolInput(anthropicResponse, toolName) {
+  if (!Array.isArray(anthropicResponse.content)) return null;
+  for (const block of anthropicResponse.content) {
+    if (block.type === "tool_use" && block.name === toolName) {
+      return block.input;
     }
   }
   return null;
+}
+
+/** Chama o Claude e devolve { status, payload }. Nunca lanca "cru": erros viram um payload de erro estruturado. */
+async function callClaude(apiKey, model, filename, mimeType, blobUrl) {
+  const isPdf = mimeType === "application/pdf";
+
+  const userContent = isPdf
+    ? [
+        {
+          type: "document",
+          source: { type: "url", url: blobUrl }
+        },
+        {
+          type: "text",
+          text:
+            "Leia este documento fundiario (" +
+            filename +
+            ") e registre os dados usando a ferramenta extrair_dados_matricula, " +
+            "seguindo rigorosamente as regras das instrucoes do sistema."
+        }
+      ]
+    : [
+        {
+          type: "image",
+          source: { type: "url", url: blobUrl }
+        },
+        {
+          type: "text",
+          text:
+            "Leia esta imagem de documento fundiario (" +
+            filename +
+            ") e registre os dados usando a ferramenta extrair_dados_matricula, " +
+            "seguindo rigorosamente as regras das instrucoes do sistema."
+        }
+      ];
+
+  const anthropicPayload = {
+    model: model,
+    max_tokens: MAX_TOKENS,
+    system: SYSTEM_INSTRUCTIONS,
+    messages: [{ role: "user", content: userContent }],
+    tools: [EXTRACTION_TOOL],
+    tool_choice: { type: "tool", name: "extrair_dados_matricula" }
+  };
+
+  let anthropicRes;
+  try {
+    anthropicRes = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION
+      },
+      body: JSON.stringify(anthropicPayload)
+    });
+  } catch (err) {
+    return { status: 502, payload: { erro: "Falha de rede ao contatar o Claude.", detalhe: String(err) } };
+  }
+
+  let anthropicJson;
+  try {
+    anthropicJson = await anthropicRes.json();
+  } catch (err) {
+    return { status: 502, payload: { erro: "Resposta invalida do Claude." } };
+  }
+
+  if (!anthropicRes.ok) {
+    const msg =
+      (anthropicJson && anthropicJson.error && anthropicJson.error.message) ||
+      "Erro desconhecido ao chamar o Claude.";
+    return { status: 502, payload: { erro: "Claude retornou um erro: " + msg } };
+  }
+
+  const extracted = extractToolInput(anthropicJson, "extrair_dados_matricula");
+  if (!extracted) {
+    return { status: 502, payload: { erro: "O Claude nao retornou dados estruturados para este documento." } };
+  }
+
+  return { status: 200, payload: { sucesso: true, dados: extracted } };
 }
 
 module.exports = async function handler(req, res) {
@@ -256,10 +350,10 @@ module.exports = async function handler(req, res) {
     return sendJson(res, 405, { erro: "Metodo nao permitido. Use POST." });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return sendJson(res, 500, {
-      erro: "Configuracao ausente no servidor: OPENAI_API_KEY nao foi definida."
+      erro: "Configuracao ausente no servidor: ANTHROPIC_API_KEY nao foi definida."
     });
   }
 
@@ -275,11 +369,11 @@ module.exports = async function handler(req, res) {
     return sendJson(res, 400, { erro: "Corpo da requisicao ausente." });
   }
 
-  const { filename, mimeType, dataBase64 } = body;
+  const { filename, mimeType, blobUrl } = body;
 
-  if (!filename || !mimeType || !dataBase64) {
+  if (!filename || !mimeType || !blobUrl) {
     return sendJson(res, 400, {
-      erro: "Campos obrigatorios ausentes: filename, mimeType, dataBase64."
+      erro: "Campos obrigatorios ausentes: filename, mimeType, blobUrl."
     });
   }
 
@@ -292,114 +386,26 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  const maxBytes = parseInt(process.env.MAX_FILE_SIZE_BYTES, 10) || DEFAULT_MAX_BYTES;
-  const estimatedBytes = estimateBase64Bytes(dataBase64);
-  if (estimatedBytes > maxBytes) {
-    return sendJson(res, 413, {
-      erro:
-        "Arquivo muito grande (" +
-        (estimatedBytes / 1000000).toFixed(2) +
-        " MB). Limite atual: " +
-        (maxBytes / 1000000).toFixed(2) +
-        " MB."
-    });
+  if (!isTrustedBlobUrl(blobUrl)) {
+    return sendJson(res, 400, { erro: "URL de arquivo invalida." });
   }
 
-  const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
-  const isPdf = mimeType === "application/pdf";
+  const model = process.env.CLAUDE_MODEL || DEFAULT_MODEL;
 
-  const userContent = isPdf
-    ? [
-        {
-          type: "input_file",
-          filename: filename,
-          file_data: "data:" + mimeType + ";base64," + dataBase64
-        },
-        {
-          type: "input_text",
-          text:
-            "Leia este documento fundiario e extraia os dados no formato JSON definido, " +
-            "seguindo rigorosamente as regras fornecidas nas instrucoes do sistema."
-        }
-      ]
-    : [
-        {
-          type: "input_image",
-          image_url: "data:" + mimeType + ";base64," + dataBase64
-        },
-        {
-          type: "input_text",
-          text:
-            "Leia esta imagem de documento fundiario e extraia os dados no formato JSON definido, " +
-            "seguindo rigorosamente as regras fornecidas nas instrucoes do sistema."
-        }
-      ];
-
-  const openAiPayload = {
-    model: model,
-    instructions: SYSTEM_INSTRUCTIONS,
-    // temperature 0: esta e uma tarefa de EXTRACAO (existe uma unica resposta
-    // correta - o que esta escrito no documento), nao de geracao criativa.
-    // Sem isso a API usa o default (1.0), que introduz variacao aleatoria
-    // entre chamadas identicas - foi o que causou o mesmo documento retornar
-    // 13 vertices numa leitura e 9 em outra. temperature 0 minimiza (nao
-    // elimina 100%, a API nao garante determinismo bit-a-bit) essa variacao.
-    temperature: 0,
-    input: [
-      {
-        role: "user",
-        content: userContent
-      }
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "extracao_matricula",
-        schema: RESPONSE_SCHEMA,
-        strict: true
-      }
+  let result;
+  try {
+    result = await callClaude(apiKey, model, filename, mimeType, blobUrl);
+  } finally {
+    // Regra do projeto: nao persistir documentos. Apaga o arquivo do Blob
+    // assim que a analise termina, com sucesso ou erro. Melhor esforco:
+    // se a exclusao falhar, isso nao deve derrubar a resposta ao usuario
+    // (o arquivo tem nome aleatorio e nao fica listado publicamente).
+    try {
+      await del(blobUrl);
+    } catch (e) {
+      // ignorado de proposito
     }
-  };
-
-  let openAiRes;
-  try {
-    openAiRes = await fetch(OPENAI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + apiKey
-      },
-      body: JSON.stringify(openAiPayload)
-    });
-  } catch (err) {
-    return sendJson(res, 502, { erro: "Falha de rede ao contatar a OpenAI.", detalhe: String(err) });
   }
 
-  let openAiJson;
-  try {
-    openAiJson = await openAiRes.json();
-  } catch (err) {
-    return sendJson(res, 502, { erro: "Resposta invalida da OpenAI." });
-  }
-
-  if (!openAiRes.ok) {
-    const msg =
-      (openAiJson && openAiJson.error && openAiJson.error.message) ||
-      "Erro desconhecido ao chamar a OpenAI.";
-    return sendJson(res, 502, { erro: "OpenAI retornou um erro: " + msg });
-  }
-
-  const outputText = extractOutputText(openAiJson);
-  if (!outputText) {
-    return sendJson(res, 502, { erro: "A OpenAI nao retornou conteudo estruturado para este documento." });
-  }
-
-  let extracted;
-  try {
-    extracted = JSON.parse(outputText);
-  } catch (err) {
-    return sendJson(res, 502, { erro: "Nao foi possivel interpretar o JSON retornado pela IA." });
-  }
-
-  return sendJson(res, 200, { sucesso: true, dados: extracted });
+  return sendJson(res, result.status, result.payload);
 };
