@@ -4,18 +4,23 @@
  * INTEGRAL GEO MATRICULA - orquestracao do frontend.
  *
  * Fluxo:
- *   1. Usuario envia documento -> base64 -> POST /api/analisar-documento
- *   2. Backend chama a OpenAI e devolve JSON com os dados IDENTIFICADOS.
- *   3. A partir daqui, TUDO e deterministico (sem IA): resolucao de
+ *   1. Usuario envia documento -> upload direto ao Vercel Blob (api/blob-upload.js)
+ *   2. Navegador manda a URL do Blob para POST /api/analisar-documento
+ *   3. Backend chama o Claude (Anthropic) e devolve JSON com os dados IDENTIFICADOS.
+ *   4. A partir daqui, TUDO e deterministico (sem IA): resolucao de
  *      coordenadas, construcao da poligonal, area, perimetro e validacoes
  *      (lib/coordinates.js e lib/geometry.js).
- *   4. O usuario pode editar qualquer vertice; toda edicao recalcula tudo.
+ *   5. O usuario pode editar qualquer vertice; toda edicao recalcula tudo.
  * ---------------------------------------------------------------------------
  */
 (function () {
   "use strict";
 
-  var MAX_FILE_BYTES = 3 * 1000 * 1000; // mantem consistencia com o backend
+  // O arquivo vai direto para o Vercel Blob (api/blob-upload.js), nunca pelo
+  // corpo de uma Serverless Function - por isso o limite pode ser bem maior
+  // que os 4.5 MB de corpo de requisicao da Vercel. Mantenha este valor
+  // igual ao MAX_FILE_SIZE_BYTES usado em api/blob-upload.js.
+  var MAX_FILE_BYTES = 20 * 1000 * 1000; // 20 MB
   var ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
 
   var PROGRESS_STEPS = [
@@ -32,7 +37,7 @@
   /** Estado global da aplicacao (unica fonte de verdade). */
   var state = {
     file: null,
-    fileBase64: null,
+    blobUrl: null,
     extraido: null, // resposta bruta da IA (normalizada)
     sistema: null, // { tipo, datum, epsg, zona, hemisferio }
     vertices: [], // lista de trabalho (editavel)
@@ -110,7 +115,7 @@
 
     btnRemover.addEventListener("click", function () {
       state.file = null;
-      state.fileBase64 = null;
+      state.blobUrl = null;
       fileInput.value = "";
       document.getElementById("file-selected").hidden = true;
       document.getElementById("dropzone").hidden = false;
@@ -161,17 +166,32 @@
     document.getElementById("btn-analisar").disabled = false;
   }
 
-  function fileToBase64(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        var result = reader.result;
-        var comma = result.indexOf(",");
-        resolve(result.substring(comma + 1));
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+  var VERCEL_BLOB_CLIENT_URL = "https://esm.sh/@vercel/blob@2.8.0/client";
+  var _blobUploadFn = null;
+
+  /** Carrega (uma unica vez) a funcao upload() do @vercel/blob/client via CDN ESM. */
+  async function getBlobUpload() {
+    if (!_blobUploadFn) {
+      var mod = await import(/* @vite-ignore */ VERCEL_BLOB_CLIENT_URL);
+      _blobUploadFn = mod.upload;
+    }
+    return _blobUploadFn;
+  }
+
+  /**
+   * Envia o arquivo DIRETO para o Vercel Blob (sem passar pelo corpo de
+   * nenhuma Serverless Function - por isso nao ha limite de 4.5 MB aqui).
+   * Devolve a URL publica do arquivo, que e o unico dado enviado depois
+   * para /api/analisar-documento.
+   */
+  async function uploadToBlob(file, onProgress) {
+    var upload = await getBlobUpload();
+    var blob = await upload(file.name, file, {
+      access: "public",
+      handleUploadUrl: "/api/blob-upload",
+      onUploadProgress: onProgress
     });
+    return blob.url;
   }
 
   // ==========================================================================
@@ -186,10 +206,10 @@
       var dotContent = "";
       if (errorIndex != null && i === errorIndex) {
         cls = "error";
-        dotContent = "✕";
+        dotContent = "âœ•";
       } else if (i <= doneUpTo) {
         cls = "done";
-        dotContent = "✓";
+        dotContent = "âœ“";
       } else if (i === activeIndex) {
         cls = "active";
       }
@@ -217,14 +237,17 @@
     document.getElementById("progress-card").hidden = false;
     document.getElementById("result-summary").hidden = true;
     hideUploadError();
-    setStatusPill("processing", "Analisando documento...");
-    renderProgressSteps(1, 0, null);
+    setStatusPill("processing", "Enviando documento...");
+    renderProgressSteps(0, -1, null);
 
     try {
-      var base64 = await fileToBase64(state.file);
-      state.fileBase64 = base64;
+      var blobUrl = await uploadToBlob(state.file, function (progress) {
+        setStatusPill("processing", "Enviando documento... " + Math.round(progress.percentage) + "%");
+      });
+      state.blobUrl = blobUrl;
 
       renderProgressSteps(1, 0, null); // "lendo documento" ativo enquanto aguarda a IA
+      setStatusPill("processing", "Analisando documento...");
 
       var resp = await fetch("/api/analisar-documento", {
         method: "POST",
@@ -232,7 +255,7 @@
         body: JSON.stringify({
           filename: state.file.name,
           mimeType: state.file.type || guessMimeFromName(state.file.name),
-          dataBase64: base64
+          blobUrl: blobUrl
         })
       });
 
@@ -491,14 +514,14 @@
       return rank[v.nivel] > rank[acc] ? v.nivel : acc;
     }, "ok");
     var badgeClass = pior === "ok" ? "rs-badge--ok" : pior === "atencao" ? "rs-badge--warn" : "rs-badge--error";
-    var badgeText = pior === "ok" ? "✓ Poligonal valida" : pior === "atencao" ? "⚠ Atencao" : "✕ Erro geometrico";
+    var badgeText = pior === "ok" ? "âœ“ Poligonal valida" : pior === "atencao" ? "âš  Atencao" : "âœ• Erro geometrico";
 
     var html = "";
     html += '<p class="rs-title">Resultado da analise</p>';
     html += "<h2>" + esc(m.numero ? "Matricula " + m.numero : "Documento analisado") + "</h2>";
     html += '<div class="rs-grid">';
     html += metricBlock("Vertices identificados", state.vertices.length);
-    html += metricBlock("Sistema", (sc.datum || "N/D") + (sc.zona ? " · UTM " + sc.zona + (sc.hemisferio || "") : ""));
+    html += metricBlock("Sistema", (sc.datum || "N/D") + (sc.zona ? " Â· UTM " + sc.zona + (sc.hemisferio || "") : ""));
     html += metricBlock("Area registral", areaRegistral != null ? fmtArea(areaRegistral) : "N/D");
     html += metricBlock(
       "Area calculada",
@@ -758,7 +781,7 @@
         '<td><input data-field="azimute_para_proximo" data-idx="' + idx + '" type="text" value="' + (v.azimute_para_proximo ? esc(v.azimute_para_proximo) : "") + '" /></td>' +
         '<td><input data-field="confrontante_para_proximo" data-idx="' + idx + '" type="text" value="' + (v.confrontante_para_proximo ? esc(v.confrontante_para_proximo) : "") + '" /></td>' +
         '<td class="confidence-cell">' + Math.round((v.confianca || 0) * 100) + "%</td>" +
-        '<td><button class="row-delete" data-idx="' + idx + '" title="Remover vertice">✕</button></td>';
+        '<td><button class="row-delete" data-idx="' + idx + '" title="Remover vertice">âœ•</button></td>';
       tbody.appendChild(tr);
     });
 
@@ -857,7 +880,7 @@
       all.push({ nivel: "atencao", codigo: "ALERTA_LEITURA", mensagem: msg });
     });
 
-    var icon = { ok: "✓", atencao: "⚠", erro: "✕" };
+    var icon = { ok: "âœ“", atencao: "âš ", erro: "âœ•" };
     var html = '<div class="validation-list">';
     all.forEach(function (v) {
       html +=
@@ -945,7 +968,7 @@
 
   function fmtArea(m2, unidade) {
     if (m2 == null || isNaN(m2)) return "N/D";
-    return Number(m2).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + (unidade || "m²");
+    return Number(m2).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + (unidade || "mÂ²");
   }
   function fmtLen(m) {
     if (m == null || isNaN(m)) return "N/D";
