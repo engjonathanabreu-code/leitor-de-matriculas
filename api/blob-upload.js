@@ -33,7 +33,7 @@ const ALLOWED_CONTENT_TYPES = [
   "image/webp"
 ];
 
-const DEFAULT_MAX_BYTES = 20 * 1000 * 1000; // 20 MB (bem abaixo do limite de 50 MB da OpenAI por arquivo)
+const DEFAULT_MAX_BYTES = 20 * 1000 * 1000; // 20 MB (bem abaixo do limite de 32 MB por PDF da Anthropic)
 
 function sendJson(res, status, payload) {
   res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
