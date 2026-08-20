@@ -2,8 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/analisar-documento.js": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "memory": 1024
+    },
+    "api/blob-upload.js": {
+      "maxDuration": 15
     }
   }
 }
