@@ -10,5 +10,7 @@
   "scripts": {
     "dev": "vercel dev"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@vercel/blob": "^2.8.0"
+  }
 }
