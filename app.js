@@ -811,6 +811,10 @@
 
     var html = "";
 
+    var pior = piorNivel(doc.validacoes);
+    var statusBadgeClass = pior === "ok" ? "rs-badge--ok" : pior === "atencao" ? "rs-badge--warn" : "rs-badge--error";
+    var statusBadgeText = pior === "ok" ? "✓ Poligonal valida" : pior === "atencao" ? "⚠ Atencao" : "✕ Erro geometrico";
+
     html += '<div class="card doc-header-card">';
     html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">';
     html += '<span class="color-dot" style="background:' + doc.cor + ';width:14px;height:14px;"></span>';
@@ -818,10 +822,18 @@
     html += doc.situacaoMatricula && doc.situacaoMatricula.ativa === false
       ? '<span class="rs-badge rs-badge--warn">Substituida</span>'
       : '<span class="rs-badge rs-badge--ok">Ativa</span>';
+    html += '<span class="rs-badge ' + statusBadgeClass + '">' + statusBadgeText + "</span>";
     html += "</div>";
     html += '<div class="rs-grid" style="margin-top:16px;">';
     html += metricBlock("Area registral", areaRegistral != null ? fmtArea(areaRegistral, im.unidade_area) : "N/D");
     html += metricBlock("Area calculada", doc.areaCalculada != null ? fmtArea(doc.areaCalculada) : "N/D", cmp ? (cmp.diferenca < 0 ? "negative" : "positive") : "");
+    if (cmp) {
+      html += metricBlock(
+        "Diferenca",
+        fmtArea(cmp.diferenca) + " (" + cmp.percentual.toFixed(3) + "%)",
+        cmp.diferenca < 0 ? "negative" : "positive"
+      );
+    }
     html += metricBlock("Perimetro calculado", doc.perimetroCalculado != null ? fmtLen(doc.perimetroCalculado) : "N/D");
     html += metricBlock("Vertices", doc.vertices.length);
     html += "</div></div>";
