@@ -55,6 +55,7 @@
     projetos: [], // [{ id, nome, criadoEm, atualizadoEm, documentos: [...] }]
     projetoAtivoId: null,
     documentoSelecionadoId: null, // qual documento do projeto ativo esta "em foco"
+    formSistemaManualDocId: null, // id do documento com o formulario de sistema manual aberto (ou null)
     filaUpload: [], // [{ id, file, status: 'pendente'|'processando'|'ok'|'erro', erro }]
     processandoFila: false,
     map: null,
@@ -525,6 +526,7 @@
       confrontantes: dados.confrontantes || [],
       alertasIA: dados.alertas || [],
       situacaoMatricula: dados.situacao_matricula || { ativa: null, substituida_por: null, texto_origem: null },
+      sistemaManualCampos: { datum: false, zona: false, hemisferio: false }, // marca o que o usuario preencheu manualmente (nao veio do documento)
       matriculasCitadas: dados.matriculas_citadas || [],
       // campos computados por computeDocumento():
       coordsLngLat: [],
@@ -546,6 +548,18 @@
   // NAO da pra assumir hemisferio Sul com seguranca quando o documento nao o informa.
   var UF_HEMISFERIO_INDETERMINADO = ["AP", "PA", "AM", "RR"];
 
+  // Apenas 4 estados brasileiros cabem inteiramente dentro de uma unica zona UTM
+  // (fato geografico verificavel, nao suposicao - fonte: IBGE/literatura de
+  // geodesia). Todos os demais estados sao maiores que 6 graus de longitude e
+  // cruzam mais de uma zona, entao NAO entram nesta tabela (ficam para
+  // preenchimento manual quando o documento nao informar a zona).
+  var UF_ZONA_UNICA = {
+    SC: 22, // Santa Catarina
+    ES: 24, // Espirito Santo
+    SE: 24, // Sergipe
+    CE: 24  // Ceara
+  };
+
   /**
    * Preenche lacunas de sistema_coordenadas com conversoes puramente
    * matematicas/geograficas (NUNCA "adivinhacoes") a partir de dados que o
@@ -553,6 +567,9 @@
    *  - Se o documento cita o Meridiano Central (comum em levantamentos mais
    *    antigos, em vez de "Fuso/Zona X") a zona UTM e uma decorrencia direta
    *    da formula: zona = (183 - meridiano_central_oeste) / 6.
+   *  - Se a zona ainda nao foi determinada, mas o estado do imovel e um dos 4
+   *    que cabem inteiros numa unica zona UTM (SC, ES, SE, CE), usa-se essa
+   *    zona - de novo, fato geografico verificavel, nao suposicao.
    *  - Se o hemisferio nao e citado, mas o estado do imovel esta inteiramente
    *    ao sul da Linha do Equador (fato geografico, nao suposicao), assume-se
    *    hemisferio Sul.
@@ -574,6 +591,18 @@
             " citado no documento (conversao matematica direta, nao e uma suposicao)."
           );
         }
+      }
+    }
+
+    if (sc.zona == null) {
+      var estadoZona = doc.extraido && doc.extraido.matricula ? doc.extraido.matricula.estado : null;
+      var ufZona = estadoZona ? String(estadoZona).trim().toUpperCase() : "";
+      if (UF_ZONA_UNICA[ufZona] != null) {
+        sc.zona = UF_ZONA_UNICA[ufZona];
+        doc.alertasIA.push(
+          "Zona UTM " + sc.zona + " determinada a partir do estado (" + ufZona + ") citado no documento - " +
+          "esse estado esta inteiramente dentro dessa zona (fato geografico, nao e uma suposicao)."
+        );
       }
     }
 
@@ -756,6 +785,49 @@
     renderDadosExtraidos();
   }
 
+  /**
+   * Aplica datum/zona/hemisferio informados MANUALMENTE pelo usuario para um
+   * documento cujo texto nao trazia essa informacao. NUNCA e a IA que decide
+   * isso - e sempre uma escolha explicita do profissional responsavel, e fica
+   * marcada como tal em todo lugar onde o sistema de coordenadas e exibido
+   * (painel de dados extraidos, validacao, exportacao).
+   */
+  function aplicarSistemaManual(doc, datum, zona, hemisferio, camposAlterados) {
+    doc.sistema.datum = datum;
+    doc.sistema.zona = zona;
+    doc.sistema.hemisferio = hemisferio;
+    if (!doc.sistema.tipo) doc.sistema.tipo = "UTM";
+    doc.sistemaManualCampos = doc.sistemaManualCampos || {};
+    camposAlterados = camposAlterados || { datum: true, zona: true, hemisferio: true };
+    if (camposAlterados.datum) doc.sistemaManualCampos.datum = true;
+    if (camposAlterados.zona) doc.sistemaManualCampos.zona = true;
+    if (camposAlterados.hemisferio) doc.sistemaManualCampos.hemisferio = true;
+    computeDocumento(doc);
+    var project = getActiveProject();
+    if (project) project.atualizadoEm = new Date().toISOString();
+    saveProjetos();
+    state.formSistemaManualDocId = null;
+    renderAllForActiveProject();
+    renderProjetos();
+  }
+
+  /** Reverte os campos que foram informados manualmente, voltando ao que o documento realmente diz (provavelmente null). */
+  function removerSistemaManual(doc) {
+    if (!doc.sistemaManualCampos) return;
+    ["datum", "zona", "hemisferio"].forEach(function (campo) {
+      if (doc.sistemaManualCampos[campo]) {
+        doc.sistema[campo] = null;
+        doc.sistemaManualCampos[campo] = false;
+      }
+    });
+    computeDocumento(doc);
+    var project = getActiveProject();
+    if (project) project.atualizadoEm = new Date().toISOString();
+    saveProjetos();
+    renderAllForActiveProject();
+    renderProjetos();
+  }
+
   // ==========================================================================
   // RENDER: RESUMO (do documento recem-analisado)
   // ==========================================================================
@@ -924,11 +996,45 @@
       ["Area registral", areaRegistral != null ? fmtArea(areaRegistral, im.unidade_area) : null],
       ["Endereco", im.endereco], ["Lote", im.lote], ["Quadra", im.quadra]
     ]);
+    var manualCampos = doc.sistemaManualCampos || {};
     html += panelTable("Georreferenciamento", [
-      ["Sistema", sc.tipo], ["Datum", sc.datum], ["EPSG", sc.epsg], ["Zona", sc.zona],
-      ["Hemisferio", sc.hemisferio], ["Numero de vertices", doc.vertices.length]
+      ["Sistema", sc.tipo],
+      ["Datum", sistemaValorComMarca(sc.datum, manualCampos.datum)],
+      ["EPSG", sc.epsg],
+      ["Zona", sistemaValorComMarca(sc.zona, manualCampos.zona)],
+      ["Hemisferio", sistemaValorComMarca(sc.hemisferio, manualCampos.hemisferio)],
+      ["Numero de vertices", doc.vertices.length]
     ]);
     html += "</div>";
+
+    if (manualCampos.datum || manualCampos.zona || manualCampos.hemisferio) {
+      html +=
+        '<p class="sistema-manual-nota">✎ Datum/zona/hemisferio marcados acima foram informados manualmente por voce - nao constam no documento original. ' +
+        '<button class="btn-icon-text" id="btn-remover-sistema-manual" type="button">Remover e voltar ao original</button></p>';
+    }
+
+    var precisaSistemaManual =
+      doc.semPosicionamentoAbsoluto &&
+      doc.vertices.some(function (v) { return v.easting != null && v.northing != null; });
+
+    if (precisaSistemaManual) {
+      if (state.formSistemaManualDocId === doc.id) {
+        html += renderFormularioSistemaManual(doc);
+      } else {
+        var faltando = [];
+        if (!doc.sistema.datum) faltando.push("datum");
+        if (doc.sistema.zona == null) faltando.push("zona UTM");
+        if (!doc.sistema.hemisferio) faltando.push("hemisferio");
+        html +=
+          '<div class="card sistema-manual-cta">' +
+          "<h3>Sistema de coordenadas incompleto no documento</h3>" +
+          "<p>O documento nao informa " + esc(faltando.join(", ")) + " suficiente(s) para posicionar esta matricula no mapa. " +
+          "Se voce souber essa informacao (pelo seu conhecimento profissional), pode informa-la manualmente.</p>" +
+          '<button class="btn btn-secondary btn-sm" id="btn-abrir-sistema-manual" type="button">Informar sistema de coordenadas</button>' +
+          "</div>";
+      }
+    }
+
 
     html += '<div class="card evidence-list"><h3>Evidencia textual (auditoria)</h3>';
     if (doc.vertices.length === 0) {
@@ -968,6 +1074,50 @@
 
     container.className = "";
     container.innerHTML = html;
+
+    var btnRemoverSistema = document.getElementById("btn-remover-sistema-manual");
+    if (btnRemoverSistema) {
+      btnRemoverSistema.addEventListener("click", function () {
+        if (!confirm("Remover as informacoes de sistema de coordenadas que voce preencheu manualmente para esta matricula?")) return;
+        removerSistemaManual(doc);
+      });
+    }
+
+    var btnAbrirSistema = document.getElementById("btn-abrir-sistema-manual");
+    if (btnAbrirSistema) {
+      btnAbrirSistema.addEventListener("click", function () {
+        state.formSistemaManualDocId = doc.id;
+        renderDadosExtraidos();
+      });
+    }
+
+    var btnCancelarSistema = document.getElementById("btn-cancelar-sistema-manual");
+    if (btnCancelarSistema) {
+      btnCancelarSistema.addEventListener("click", function () {
+        state.formSistemaManualDocId = null;
+        renderDadosExtraidos();
+      });
+    }
+
+    var btnAplicarSistema = document.getElementById("btn-aplicar-sistema-manual");
+    if (btnAplicarSistema) {
+      btnAplicarSistema.addEventListener("click", function () {
+        var datum = document.getElementById("sm-datum").value;
+        var zonaRaw = document.getElementById("sm-zona").value;
+        var hemisferio = document.getElementById("sm-hemisferio").value;
+        var zona = zonaRaw === "" ? null : parseInt(zonaRaw, 10);
+        if (!zona || zona < 1 || zona > 60) {
+          alert("Informe uma zona UTM valida (numero de 1 a 60).");
+          return;
+        }
+        var camposAlterados = {
+          datum: doc.sistema.datum !== datum,
+          zona: doc.sistema.zona !== zona,
+          hemisferio: doc.sistema.hemisferio !== hemisferio
+        };
+        aplicarSistemaManual(doc, datum, zona, hemisferio, camposAlterados);
+      });
+    }
   }
 
   function panelTable(title, rows) {
@@ -982,6 +1132,40 @@
         "</td></tr>";
     });
     html += "</tbody></table></div>";
+    return html;
+  }
+
+  /** Anexa uma marca visivel (✎) quando o valor foi informado manualmente pelo usuario, nao extraido do documento. */
+  function sistemaValorComMarca(valor, manual) {
+    if (valor == null || valor === "") return null;
+    return manual ? valor + " ✎" : valor;
+  }
+
+  var DATUMS_CONHECIDOS = ["SIRGAS2000", "SAD69", "WGS84", "Corrego Alegre", "Astro-Chua"];
+
+  function renderFormularioSistemaManual(doc) {
+    var sc = doc.sistema || {};
+    var html = '<div class="card sistema-manual-form">';
+    html += "<h3>Informar sistema de coordenadas manualmente</h3>";
+    html +=
+      "<p>Campos ja deduzidos automaticamente (fato geografico, ex: zona/hemisferio pelo estado) vem preenchidos. " +
+      "O que voce preencher ou confirmar aqui ficara marcado como informado manualmente (nao extraido do documento) em todo o sistema.</p>";
+    html += '<div class="form-row">';
+    html += '<label>Datum<select id="sm-datum">' +
+      DATUMS_CONHECIDOS.map(function (d) {
+        return '<option value="' + esc(d) + '"' + (sc.datum === d ? " selected" : "") + '>' + esc(d) + "</option>";
+      }).join("") +
+      "</select></label>";
+    html += '<label>Zona UTM<input id="sm-zona" type="number" min="1" max="60" value="' + (sc.zona != null ? sc.zona : "") + '" placeholder="ex: 22" /></label>';
+    html += '<label>Hemisferio<select id="sm-hemisferio">' +
+      '<option value="S"' + (sc.hemisferio === "S" ? " selected" : "") + '>Sul</option>' +
+      '<option value="N"' + (sc.hemisferio === "N" ? " selected" : "") + '>Norte</option>' +
+      "</select></label>";
+    html += "</div>";
+    html += '<div class="form-actions">';
+    html += '<button class="btn btn-primary btn-sm" id="btn-aplicar-sistema-manual" type="button">Aplicar e tentar posicionar no mapa</button>';
+    html += '<button class="btn btn-secondary btn-sm" id="btn-cancelar-sistema-manual" type="button">Cancelar</button>';
+    html += "</div></div>";
     return html;
   }
 
@@ -1117,7 +1301,8 @@
         document.getElementById("mapa-content").insertBefore(warn, document.getElementById("mapa-content").firstChild);
       }
       warn.innerHTML =
-        "<h3>Mapa indisponivel</h3><p>Nenhum documento deste projeto tem posicionamento geografico absoluto. A forma e as medidas estao disponiveis na tabela de vertices, mas nao sao exibidas no mapa para evitar posicionamento incorreto.</p>";
+        "<h3>Mapa indisponivel</h3><p>Nenhum documento deste projeto tem posicionamento geografico absoluto. A forma e as medidas estao disponiveis na tabela de vertices, mas nao sao exibidas no mapa para evitar posicionamento incorreto. " +
+        'Se o documento usa coordenadas UTM mas nao informa datum/zona/hemisferio, voce pode informar isso manualmente na aba "Dados extraidos".</p>';
     } else {
       var existingWarn = document.getElementById("mapa-sem-posicionamento");
       if (existingWarn) existingWarn.remove();
@@ -1306,6 +1491,15 @@
           nivel: "atencao",
           codigo: "MATRICULA_SUBSTITUIDA",
           mensagem: "Esta matricula foi substituida" + (doc.situacaoMatricula.substituida_por ? " pela matricula " + doc.situacaoMatricula.substituida_por : "") + "."
+        });
+      }
+
+      var mc = doc.sistemaManualCampos;
+      if (mc && (mc.datum || mc.zona || mc.hemisferio)) {
+        all.unshift({
+          nivel: "atencao",
+          codigo: "SISTEMA_MANUAL",
+          mensagem: "O datum/zona/hemisferio desta matricula foi informado manualmente pelo usuario - nao consta no documento original. Confira antes de usar para fins oficiais."
         });
       }
 
