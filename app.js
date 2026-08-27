@@ -301,20 +301,19 @@
   // ==========================================================================
   // UPLOAD PARA O VERCEL BLOB (bypass do limite de 4.5MB das Functions)
   // ==========================================================================
-  var VERCEL_BLOB_CLIENT_URL = "https://esm.sh/@vercel/blob@2.8.0/client";
-  var _blobUploadFn = null;
-
-  async function getBlobUpload() {
-    if (!_blobUploadFn) {
-      var mod = await import(/* @vite-ignore */ VERCEL_BLOB_CLIENT_URL);
-      _blobUploadFn = mod.upload;
-    }
-    return _blobUploadFn;
-  }
-
+  // A biblioteca @vercel/blob/client vem de lib/vendor/vercel-blob-client.bundle.js
+  // (empacotada previamente com esbuild), carregada via <script> comum no
+  // index.html. Isso evita depender de um CDN externo (esm.sh) em tempo de
+  // execucao para empacotar um pacote pensado para Node.js sob demanda no
+  // navegador - abordagem que se mostrou instavel (upload travava
+  // silenciosamente, sem erro, em vez de falhar rapido).
   async function uploadToBlob(file, onProgress) {
-    var upload = await getBlobUpload();
-    var blob = await upload(file.name, file, {
+    if (!window.VercelBlobClient || typeof window.VercelBlobClient.upload !== "function") {
+      throw new Error(
+        "Biblioteca de upload nao carregou (lib/vendor/vercel-blob-client.bundle.js). Verifique se o arquivo foi enviado ao GitHub e se o script esta referenciado no index.html."
+      );
+    }
+    var blob = await window.VercelBlobClient.upload(file.name, file, {
       access: "public",
       handleUploadUrl: "/api/blob-upload",
       onUploadProgress: onProgress
@@ -354,6 +353,15 @@
   }
 
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  /** Garante que uma Promise nunca fica pendurada para sempre - rejeita com mensagem clara apos o prazo. */
+  function withTimeout(promise, ms, message) {
+    var timeoutId;
+    var timeout = new Promise(function (_, reject) {
+      timeoutId = setTimeout(function () { reject(new Error(message)); }, ms);
+    });
+    return Promise.race([promise, timeout]).finally(function () { clearTimeout(timeoutId); });
+  }
 
   function setStatusPill(kind, text) {
     var el = document.getElementById("status-pill");
@@ -420,21 +428,29 @@
 
   /** Analisa UM arquivo e devolve o "documento" ja adicionado ao projeto. Lanca erro em caso de falha. */
   async function analisarUmArquivo(file, project) {
-    var blobUrl = await uploadToBlob(file, function (progress) {
-      setStatusPill("processing", "Enviando " + file.name + "... " + Math.round(progress.percentage) + "%");
-    });
+    var blobUrl = await withTimeout(
+      uploadToBlob(file, function (progress) {
+        setStatusPill("processing", "Enviando " + file.name + "... " + Math.round(progress.percentage) + "%");
+      }),
+      120000,
+      "O envio do arquivo demorou demais e foi cancelado (mais de 2 minutos). Verifique sua conexao e tente novamente."
+    );
 
     renderProgressSteps(1, 0, null);
 
-    var resp = await fetch("/api/analisar-documento", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filename: file.name,
-        mimeType: file.type || guessMimeFromName(file.name),
-        blobUrl: blobUrl
-      })
-    });
+    var resp = await withTimeout(
+      fetch("/api/analisar-documento", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: file.type || guessMimeFromName(file.name),
+          blobUrl: blobUrl
+        })
+      }),
+      290000,
+      "A analise demorou demais e foi cancelada (mais de 4:50min). O documento pode ser muito grande ou complexo; tente novamente."
+    );
 
     var json = await resp.json();
     if (!resp.ok || !json.sucesso) {
