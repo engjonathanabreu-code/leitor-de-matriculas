@@ -528,6 +528,9 @@
       situacaoMatricula: dados.situacao_matricula || { ativa: null, substituida_por: null, texto_origem: null },
       sistemaManualCampos: { datum: false, zona: false, hemisferio: false }, // marca o que o usuario preencheu manualmente (nao veio do documento)
       matriculasCitadas: dados.matriculas_citadas || [],
+      // sugestao da IA (conhecimento geral, NAO extraido do documento) - so usada para
+      // pre-preencher o formulario manual; nunca aplicada a sistema sem confirmacao do usuario
+      sugestaoGeografica: dados.sugestao_geografica || null,
       // campos computados por computeDocumento():
       coordsLngLat: [],
       resolvedIndexes: [],
@@ -1025,11 +1028,15 @@
         if (!doc.sistema.datum) faltando.push("datum");
         if (doc.sistema.zona == null) faltando.push("zona UTM");
         if (!doc.sistema.hemisferio) faltando.push("hemisferio");
+        var temSugestao = doc.sugestaoGeografica && (doc.sugestaoGeografica.zona_utm_sugerida != null || doc.sugestaoGeografica.datum_sugerido);
         html +=
           '<div class="card sistema-manual-cta">' +
           "<h3>Sistema de coordenadas incompleto no documento</h3>" +
           "<p>O documento nao informa " + esc(faltando.join(", ")) + " suficiente(s) para posicionar esta matricula no mapa. " +
-          "Se voce souber essa informacao (pelo seu conhecimento profissional), pode informa-la manualmente.</p>" +
+          (temSugestao
+            ? "A IA identificou o municipio/estado e tem uma sugestao para preencher (voce ainda precisa confirmar)."
+            : "Se voce souber essa informacao (pelo seu conhecimento profissional), pode informa-la manualmente.") +
+          "</p>" +
           '<button class="btn btn-secondary btn-sm" id="btn-abrir-sistema-manual" type="button">Informar sistema de coordenadas</button>' +
           "</div>";
       }
@@ -1106,6 +1113,10 @@
         var zonaRaw = document.getElementById("sm-zona").value;
         var hemisferio = document.getElementById("sm-hemisferio").value;
         var zona = zonaRaw === "" ? null : parseInt(zonaRaw, 10);
+        if (!datum) {
+          alert("Selecione um datum.");
+          return;
+        }
         if (!zona || zona < 1 || zona > 60) {
           alert("Informe uma zona UTM valida (numero de 1 a 60).");
           return;
@@ -1145,18 +1156,36 @@
 
   function renderFormularioSistemaManual(doc) {
     var sc = doc.sistema || {};
+    var sug = doc.sugestaoGeografica || {};
+
+    // prioridade de preenchimento: 1) ja resolvido (documento ou fato geografico), 2) sugestao da IA, 3) vazio
+    var zonaValor = sc.zona != null ? sc.zona : (sug.zona_utm_sugerida != null ? sug.zona_utm_sugerida : "");
+    var datumValor = sc.datum != null ? sc.datum : (sug.datum_sugerido || "");
+    var zonaVeioDeSugestao = sc.zona == null && sug.zona_utm_sugerida != null;
+    var datumVeioDeSugestao = sc.datum == null && sug.datum_sugerido != null;
+
     var html = '<div class="card sistema-manual-form">';
     html += "<h3>Informar sistema de coordenadas manualmente</h3>";
     html +=
       "<p>Campos ja deduzidos automaticamente (fato geografico, ex: zona/hemisferio pelo estado) vem preenchidos. " +
       "O que voce preencher ou confirmar aqui ficara marcado como informado manualmente (nao extraido do documento) em todo o sistema.</p>";
+
+    if (zonaVeioDeSugestao || datumVeioDeSugestao) {
+      html +=
+        '<div class="sugestao-ia-box">⚠ <b>Sugestao da IA</b> - baseada na cidade/estado do imovel, NAO extraida do documento nem garantida geograficamente. ' +
+        "Confira antes de aplicar." +
+        (sug.justificativa ? "<br/><em>" + esc(sug.justificativa) + "</em>" : "") +
+        "</div>";
+    }
+
     html += '<div class="form-row">';
-    html += '<label>Datum<select id="sm-datum">' +
+    html += '<label>Datum' + (datumVeioDeSugestao ? ' <span class="tag-sugestao-ia">sugestao IA</span>' : "") + '<select id="sm-datum"><option value="">Selecione...</option>' +
       DATUMS_CONHECIDOS.map(function (d) {
-        return '<option value="' + esc(d) + '"' + (sc.datum === d ? " selected" : "") + '>' + esc(d) + "</option>";
+        return '<option value="' + esc(d) + '"' + (datumValor === d ? " selected" : "") + '>' + esc(d) + "</option>";
       }).join("") +
       "</select></label>";
-    html += '<label>Zona UTM<input id="sm-zona" type="number" min="1" max="60" value="' + (sc.zona != null ? sc.zona : "") + '" placeholder="ex: 22" /></label>';
+    html += '<label>Zona UTM' + (zonaVeioDeSugestao ? ' <span class="tag-sugestao-ia">sugestao IA</span>' : "") +
+      '<input id="sm-zona" type="number" min="1" max="60" value="' + zonaValor + '" placeholder="ex: 22" /></label>';
     html += '<label>Hemisferio<select id="sm-hemisferio">' +
       '<option value="S"' + (sc.hemisferio === "S" ? " selected" : "") + '>Sul</option>' +
       '<option value="N"' + (sc.hemisferio === "N" ? " selected" : "") + '>Norte</option>' +
