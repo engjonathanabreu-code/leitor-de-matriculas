@@ -498,13 +498,13 @@
       };
     });
 
-    return {
+    var doc = {
       id: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
       nomeArquivo: nomeArquivo,
       dataAnalise: new Date().toISOString(),
       cor: null,
       extraido: dados,
-      sistema: dados.sistema_coordenadas || { tipo: null, datum: null, epsg: null, zona: null, hemisferio: null },
+      sistema: dados.sistema_coordenadas || { tipo: null, datum: null, epsg: null, zona: null, hemisferio: null, meridiano_central: null },
       vertices: vertices,
       confrontantes: dados.confrontantes || [],
       alertasIA: dados.alertas || [],
@@ -521,6 +521,56 @@
       perimetroCalculado: null,
       validacoes: []
     };
+
+    resolveSistemaCoordenadas(doc);
+    return doc;
+  }
+
+  // Estados brasileiros cuja area cruza ou toca a Linha do Equador - para estes,
+  // NAO da pra assumir hemisferio Sul com seguranca quando o documento nao o informa.
+  var UF_HEMISFERIO_INDETERMINADO = ["AP", "PA", "AM", "RR"];
+
+  /**
+   * Preenche lacunas de sistema_coordenadas com conversoes puramente
+   * matematicas/geograficas (NUNCA "adivinhacoes") a partir de dados que o
+   * proprio documento ja declara:
+   *  - Se o documento cita o Meridiano Central (comum em levantamentos mais
+   *    antigos, em vez de "Fuso/Zona X") a zona UTM e uma decorrencia direta
+   *    da formula: zona = (183 - meridiano_central_oeste) / 6.
+   *  - Se o hemisferio nao e citado, mas o estado do imovel esta inteiramente
+   *    ao sul da Linha do Equador (fato geografico, nao suposicao), assume-se
+   *    hemisferio Sul.
+   * Qualquer valor preenchido aqui gera um alerta visivel, nunca fica silencioso.
+   */
+  function resolveSistemaCoordenadas(doc) {
+    var sc = doc.sistema;
+    if (!sc || sc.tipo !== "UTM") return;
+    doc.alertasIA = doc.alertasIA || [];
+
+    if (sc.zona == null && sc.meridiano_central != null && sc.meridiano_central !== "") {
+      var cm = Math.abs(parseFloat(String(sc.meridiano_central).replace(",", ".")));
+      if (!isNaN(cm)) {
+        var zonaCalculada = Math.round((183 - cm) / 6);
+        if (zonaCalculada >= 1 && zonaCalculada <= 60) {
+          sc.zona = zonaCalculada;
+          doc.alertasIA.push(
+            "Zona UTM " + zonaCalculada + " calculada a partir do Meridiano Central " + sc.meridiano_central +
+            " citado no documento (conversao matematica direta, nao e uma suposicao)."
+          );
+        }
+      }
+    }
+
+    if (sc.hemisferio == null) {
+      var estado = doc.extraido && doc.extraido.matricula ? doc.extraido.matricula.estado : null;
+      var uf = estado ? String(estado).trim().toUpperCase() : "";
+      if (uf.length === 2 && UF_HEMISFERIO_INDETERMINADO.indexOf(uf) === -1) {
+        sc.hemisferio = "S";
+        doc.alertasIA.push(
+          "Hemisferio Sul assumido para o estado " + uf + " (nao explicitado no documento). Todo o territorio deste estado esta ao sul da Linha do Equador."
+        );
+      }
+    }
   }
 
   // ==========================================================================
@@ -639,7 +689,7 @@
       coordsLngLat: doc.semPosicionamentoAbsoluto ? [] : doc.coordsLngLat,
       resolvedIndexes: doc.resolvedIndexes,
       missingIndexes: doc.semPosicionamentoAbsoluto ? [] : doc.missingIndexes,
-      polygonFeature: doc.semPosicionamentoAbsoluto ? null : doc.polygonFeature,
+      polygonFeature: doc.polygonFeature,
       areaRegistral: areaRegistral,
       areaCalculada: doc.areaCalculada,
       perimetroRegistral: null,
