@@ -103,6 +103,14 @@ REGRAS OBRIGATORIAS E INEGOCIAVEIS (regra fundamental contra alucinacao):
   no texto que sejam DIFERENTES da matricula sendo analisada (registro
   anterior, confrontantes que citam numero de matricula, substituicoes,
   matriculas de origem/desmembramento, etc). Nao repita numeros.
+- Preencha "sugestao_geografica" SOMENTE se sistema_coordenadas.tipo for UTM e
+  zona ou datum estiverem null. Isto e uma EXCECAO deliberada a regra de
+  "nunca calcular/inferir": aqui voce pode usar seu conhecimento GERAL de
+  geografia (nao o texto do documento) para sugerir a zona UTM e o datum mais
+  provaveis, dado o municipio/estado do imovel. Esta sugestao e sempre exibida
+  ao usuario como "sugestao da IA, nao extraida do documento" e nunca aplicada
+  automaticamente - o usuario decide se confirma. Se nao tiver confianca
+  razoavel, deixe os campos null.
 - Preencha "sistema_coordenadas.meridiano_central" quando o documento citar o
   Meridiano Central do levantamento (comum em memoriais mais antigos, em vez
   de declarar "Fuso/Zona X" diretamente) - ex: "referentes ao Meridiano
@@ -132,6 +140,7 @@ const EXTRACTION_TOOL = {
       "sistema_coordenadas",
       "situacao_matricula",
       "matriculas_citadas",
+      "sugestao_geografica",
       "vertices",
       "confrontantes",
       "alertas"
@@ -241,6 +250,30 @@ const EXTRACTION_TOOL = {
               type: ["string", "null"],
               description: "breve descricao de onde/por que foi citada, ex: 'confrontante ao norte' ou 'registro anterior'"
             }
+          }
+        }
+      },
+      sugestao_geografica: {
+        type: "object",
+        additionalProperties: false,
+        required: ["zona_utm_sugerida", "datum_sugerido", "justificativa"],
+        description:
+          "ATENCAO: isto NAO e extracao do documento. Preencha apenas se sistema_coordenadas.tipo for UTM e " +
+          "sistema_coordenadas.zona e/ou datum estiverem null porque o documento nao os informa. Com base no seu " +
+          "CONHECIMENTO GERAL de geografia do Brasil (nao no texto do documento), sugira a zona UTM e o datum mais " +
+          "provaveis para o municipio/estado do imovel identificado em matricula.municipio/matricula.estado. " +
+          "So preencha se tiver confianca razoavel; caso contrario deixe os campos null. Esta sugestao sera exibida " +
+          "na interface claramente rotulada como 'sugestao da IA, nao extraida do documento', pre-preenchendo um " +
+          "formulario que o usuario deve revisar e confirmar manualmente antes de qualquer uso - nunca e aplicada automaticamente.",
+        properties: {
+          zona_utm_sugerida: { type: ["number", "null"] },
+          datum_sugerido: {
+            type: ["string", "null"],
+            description: "ex: SIRGAS2000 (padrao oficial desde 2005), SAD69, Corrego Alegre (mais comuns em levantamentos antigos)"
+          },
+          justificativa: {
+            type: ["string", "null"],
+            description: "breve explicacao, ex: 'Municipio de Anita Garibaldi/SC esta inteiramente na zona UTM 22; SIRGAS2000 e o datum oficial brasileiro desde 2005'"
           }
         }
       },
