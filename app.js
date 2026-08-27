@@ -812,6 +812,17 @@
     state.formSistemaManualDocId = null;
     renderAllForActiveProject();
     renderProjetos();
+
+    if (doc.semPosicionamentoAbsoluto) {
+      // sistema de referencia completo, mas ainda assim nao posicionou: o problema
+      // esta nos proprios vertices (easting/northing nao foram extraidos do documento)
+      alert(
+        "O sistema de coordenadas foi salvo, mas a matricula ainda nao pode ser posicionada no mapa: " +
+        "os proprios vertices desta analise nao tem coordenadas UTM registradas (nao e so o datum/zona que faltava). " +
+        "Tente remover esta matricula do projeto (aba Projetos) e analisar o documento de novo - " +
+        "isso vai refazer a extracao e pode corrigir o problema."
+      );
+    }
   }
 
   /** Reverte os campos que foram informados manualmente, voltando ao que o documento realmente diz (provavelmente null). */
@@ -1018,7 +1029,7 @@
 
     var precisaSistemaManual =
       doc.semPosicionamentoAbsoluto &&
-      doc.vertices.some(function (v) { return v.easting != null && v.northing != null; });
+      (doc.sistema.tipo === "UTM" || doc.sistema.tipo == null);
 
     if (precisaSistemaManual) {
       if (state.formSistemaManualDocId === doc.id) {
