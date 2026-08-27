@@ -103,6 +103,11 @@ REGRAS OBRIGATORIAS E INEGOCIAVEIS (regra fundamental contra alucinacao):
   no texto que sejam DIFERENTES da matricula sendo analisada (registro
   anterior, confrontantes que citam numero de matricula, substituicoes,
   matriculas de origem/desmembramento, etc). Nao repita numeros.
+- Preencha "sistema_coordenadas.meridiano_central" quando o documento citar o
+  Meridiano Central do levantamento (comum em memoriais mais antigos, em vez
+  de declarar "Fuso/Zona X" diretamente) - ex: "referentes ao Meridiano
+  Central 51 WGr". Transcreva o valor literal; a conversao para zona UTM e
+  feita por outro modulo do sistema.
 - Se o documento nao for um dos tipos esperados, ainda assim extraia o que
   for aplicavel e defina tipo_documento como "OUTRO".
 - Sua resposta deve ser SOMENTE a chamada da ferramenta "extrair_dados_matricula"
@@ -181,7 +186,7 @@ const EXTRACTION_TOOL = {
       sistema_coordenadas: {
         type: "object",
         additionalProperties: false,
-        required: ["tipo", "datum", "epsg", "zona", "hemisferio"],
+        required: ["tipo", "datum", "epsg", "zona", "hemisferio", "meridiano_central"],
         properties: {
           tipo: {
             type: ["string", "null"],
@@ -190,7 +195,12 @@ const EXTRACTION_TOOL = {
           datum: { type: ["string", "null"], description: "ex: SIRGAS2000, SAD69, WGS84" },
           epsg: { type: ["string", "null"] },
           zona: { type: ["number", "null"] },
-          hemisferio: { type: ["string", "null"], description: "N ou S" }
+          hemisferio: { type: ["string", "null"], description: "N ou S" },
+          meridiano_central: {
+            type: ["string", "null"],
+            description:
+              "Valor do Meridiano Central citado no documento (comum em levantamentos mais antigos, em graus, geralmente oeste de Greenwich), quando o documento usa essa forma em vez de declarar diretamente a zona/fuso UTM. Ex: '51', '51 WGr', '51°W'. Transcreva literalmente; nao converta para zona."
+          }
         }
       },
       situacao_matricula: {
