@@ -532,6 +532,42 @@ button, input{ font-family: inherit; }
 
 .doc-header-card{ max-width: 900px; }
 
+.sistema-manual-nota{
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: -8px 0 20px;
+  max-width: 900px;
+}
+
+.sistema-manual-cta{ max-width: 900px; }
+.sistema-manual-cta p{ margin: 8px 0 14px; color: var(--text-secondary); font-size: 13.5px; line-height: 1.5; }
+
+.sistema-manual-form{ max-width: 900px; }
+.sistema-manual-form p{ color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin: 6px 0 18px; }
+.form-row{ display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.form-row label{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  flex: 1;
+  min-width: 150px;
+}
+.form-row input, .form-row select{
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background: #fff;
+}
+.form-row input:focus, .form-row select:focus{ outline: none; border-color: var(--accent); }
+.form-actions{ display: flex; gap: 10px; flex-wrap: wrap; }
+
+
 .evidence-list{ margin-top: 24px; }
 .evidence-item{
   background: #fafbfc;
