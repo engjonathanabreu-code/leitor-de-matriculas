@@ -524,6 +524,56 @@
     return vertices;
   }
 
+  /** Remove acentos, caixa e pontuacao para comparar nomes de confrontantes com seguranca. */
+  function normalizarTextoConfrontante(s) {
+    return String(s || "")
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "")
+      .replace(/0+(\d)/g, "$1"); // "Lote 08" e "Lote 8" devem ser tratados como o mesmo confrontante
+  }
+
+  /**
+   * Completa vertice_inicial/vertice_final/distancia/azimute da lista de
+   * confrontantes cruzando deterministicamente com os dados por vertice
+   * (confrontante_para_proximo/distancia_para_proximo/azimute_para_proximo),
+   * que ja vem confiavelmente preenchidos pela extracao por vertice. Isso
+   * evita depender da IA fazer esse cruzamento sozinha (instavel - as vezes
+   * preenche uma linha e deixa as outras em branco, mesmo doc, doc a doc).
+   * Quando um confrontante aparece em mais de um segmento (varios vertices
+   * confrontando com o mesmo lote), soma as distancias e lista os vertices.
+   */
+  function completarConfrontantesComVertices(confrontantes, vertices) {
+    return confrontantes.map(function (c) {
+      var chave = normalizarTextoConfrontante(c.nome);
+      if (!chave) return c;
+
+      var inicial = null, distanciaTotal = 0, temDistancia = false, primeiroAzimute = null;
+      for (var i = 0; i < vertices.length; i++) {
+        var v = vertices[i];
+        if (normalizarTextoConfrontante(v.confrontante_para_proximo) !== chave) continue;
+        if (inicial == null) inicial = v.id;
+        if (v.distancia_para_proximo != null) {
+          distanciaTotal += Number(v.distancia_para_proximo);
+          temDistancia = true;
+        }
+        if (primeiroAzimute == null) primeiroAzimute = v.azimute_para_proximo || v.rumo_para_proximo;
+      }
+
+      if (inicial == null) return c; // nenhum vertice bate com esse confrontante - deixa como veio
+
+      var proximoIdx = vertices.findIndex(function (v) { return v.id === inicial; });
+      var final = vertices[(proximoIdx + 1) % vertices.length].id;
+
+      return Object.assign({}, c, {
+        vertice_inicial: c.vertice_inicial || inicial,
+        vertice_final: c.vertice_final || final,
+        distancia: c.distancia != null ? c.distancia : (temDistancia ? distanciaTotal : null),
+        azimute: c.azimute || primeiroAzimute
+      });
+    });
+  }
+
   function buildDocumentoFromExtraction(dados, nomeArquivo) {
     var vertices = (dados.vertices || []).map(function (v) {
       var lat = v.latitude_texto ? IntegralCoordinates.parseDMSToDecimal(v.latitude_texto) : null;
@@ -548,6 +598,8 @@
 
     vertices = removerVerticeFechamentoDuplicado(vertices);
 
+    var confrontantes = completarConfrontantesComVertices(dados.confrontantes || [], vertices);
+
     var doc = {
       id: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
       nomeArquivo: nomeArquivo,
@@ -556,7 +608,7 @@
       extraido: dados,
       sistema: dados.sistema_coordenadas || { tipo: null, datum: null, epsg: null, zona: null, hemisferio: null, meridiano_central: null },
       vertices: vertices,
-      confrontantes: dados.confrontantes || [],
+      confrontantes: confrontantes,
       alertasIA: dados.alertas || [],
       situacaoMatricula: dados.situacao_matricula || { ativa: null, substituida_por: null, texto_origem: null },
       sistemaManualCampos: { datum: false, zona: false, hemisferio: false }, // marca o que o usuario preencheu manualmente (nao veio do documento)
