@@ -465,10 +465,11 @@ async function callClaude(apiKey, model, filename, mimeType, blobUrl) {
   const anthropicPayload = {
     model: model,
     max_tokens: MAX_TOKENS,
-    // temperature baixa (quase deterministica): esta e uma tarefa de extracao
-    // estruturada, nao criativa - o mesmo documento deve produzir o mesmo
-    // resultado em analises repetidas, nao variar o numero de vertices a cada vez.
-    temperature: 0,
+    // Nota: "temperature" foi removido daqui de proposito - o modelo em uso
+    // rejeita esse parametro ("`temperature` is deprecated for this model").
+    // A consistencia da extracao entre analises repetidas do mesmo documento
+    // e reforcada via instrucao explicita no SYSTEM_INSTRUCTIONS (contar os
+    // vertices antes de responder), nao via parametro de amostragem.
     system: SYSTEM_INSTRUCTIONS,
     messages: [{ role: "user", content: userContent }],
     tools: [EXTRACTION_TOOL],
