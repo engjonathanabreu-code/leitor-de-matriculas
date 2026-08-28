@@ -139,12 +139,12 @@ button, input{ font-family: inherit; }
 
 .brand-text{ display: flex; flex-direction: column; line-height: 1.15; }
 .brand-line1{
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: -0.01em;
   color: #ffffff;
 }
-.brand-accent{ color: #8fb4ff; }
+.brand-accent{ color: #8fb4ff; font-weight: 800; }
 .brand-line2{
   font-size: 13.5px;
   font-weight: 500;
@@ -185,13 +185,24 @@ button, input{ font-family: inherit; }
   gap: 10px;
 }
 
-.footer-caption{
-  font-size: 11px;
-  line-height: 1.5;
-  color: #656d85;
-  padding: 0 2px;
+.footer-credit{
+  padding: 12px 2px 0;
+  margin-top: 2px;
+  border-top: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
-.footer-caption strong{ color: #838ba3; font-weight: 600; }
+.footer-credit-company{
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #8890a6;
+}
+.footer-credit-dev{
+  font-size: 10.5px;
+  color: #565e77;
+}
 
 .status-pill{
   font-size: 12px;
