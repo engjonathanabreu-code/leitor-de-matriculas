@@ -1167,21 +1167,6 @@
     });
     html += "</div>";
 
-    if (doc.historicoRegistro && doc.historicoRegistro.length) {
-      html += '<div class="card"><h3>Historico de posse e transicao</h3>';
-      html += '<div class="table-scroll"><table class="data-table"><thead><tr>';
-      html += "<th>Ato</th><th>Data</th><th>Tipo</th><th>Descricao</th>";
-      html += "</tr></thead><tbody>";
-      doc.historicoRegistro.forEach(function (h) {
-        html +=
-          "<tr><td class=\"mono\">" + esc(h.ato) + "</td>" +
-          "<td>" + esc(h.data || "N/D") + "</td>" +
-          "<td>" + esc(h.tipo || "N/D") + "</td>" +
-          "<td>" + esc(h.descricao) + "</td></tr>";
-      });
-      html += "</tbody></table></div></div>";
-    }
-
     if (doc.alertasIA && doc.alertasIA.length) {
       html += '<div class="card"><h3>Alertas da leitura</h3><table class="data-table report-table"><tbody>';
       doc.alertasIA.forEach(function (a, i) {
@@ -1200,6 +1185,24 @@
           "<td class=\"report-value\" style=\"font-family:var(--font-sans);font-weight:400;text-align:left;\">" + esc(c.contexto || "") + "</td></tr>";
       });
       html += "</table></div>";
+    }
+
+    if (doc.historicoRegistro && doc.historicoRegistro.length) {
+      html += '<div class="card"><h3>Historico de posse e transicao</h3>';
+      html += '<div class="table-scroll"><table class="data-table"><thead><tr>';
+      html += "<th>Ato</th><th>Data</th><th>Tipo</th><th>De</th><th>Para</th><th>Valor</th><th>Descricao</th>";
+      html += "</tr></thead><tbody>";
+      doc.historicoRegistro.forEach(function (h) {
+        html +=
+          "<tr><td class=\"mono\">" + esc(h.ato) + "</td>" +
+          "<td>" + esc(h.data || "N/D") + "</td>" +
+          "<td>" + esc(h.tipo || "N/D") + "</td>" +
+          "<td>" + esc(h.de || "N/D") + "</td>" +
+          "<td>" + esc(h.para || "N/D") + "</td>" +
+          "<td>" + esc(h.valor || "N/D") + "</td>" +
+          "<td>" + esc(h.descricao || "") + "</td></tr>";
+      });
+      html += "</tbody></table></div></div>";
     }
 
     container.className = "";
