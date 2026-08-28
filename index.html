@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="pt-BR" translate="no">
+<head>
+<meta charset="UTF-8" />
+<meta name="google" content="notranslate" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Matrícula.IA</title>
+<meta name="description" content="Análise geométrica de matrículas imobiliárias e memoriais descritivos com IA e geoprocessamento." />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%231d4ed8'/%3E%3Cpath d='M5 15 L9 6 L18 8 L16 18 Z' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linejoin='round' stroke-linecap='round'/%3E%3Ccircle cx='5' cy='15' r='1.4' fill='%23fff'/%3E%3Ccircle cx='9' cy='6' r='1.4' fill='%23fff'/%3E%3Ccircle cx='18' cy='8' r='1.4' fill='%23fff'/%3E%3Ccircle cx='16' cy='18' r='1.4' fill='%23fff'/%3E%3C/svg%3E" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body class="notranslate" translate="no">
+
+<div class="app-shell" translate="no">
+
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" xmlns="http://www.w3.org/2000/svg">
+          <path d="M5 15 L9 6 L18 8 L16 18 Z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+          <circle cx="5" cy="15" r="1.4" fill="#fff"/>
+          <circle cx="9" cy="6" r="1.4" fill="#fff"/>
+          <circle cx="18" cy="8" r="1.4" fill="#fff"/>
+          <circle cx="16" cy="18" r="1.4" fill="#fff"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-line1">Matrícula<span class="brand-accent">.IA</span></span>
+        <span class="brand-line2">por Integral Engenharia</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-view="nova-analise" type="button">
+        <svg viewBox="0 0 24 24" class="nav-icon"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Nova análise
+      </button>
+      <button class="nav-item" data-view="dados-extraidos" type="button">
+        <svg viewBox="0 0 24 24" class="nav-icon"><path d="M4 5h16M4 12h16M4 19h10" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+        Dados extraídos
+      </button>
+      <button class="nav-item" data-view="mapa" type="button">
+        <svg viewBox="0 0 24 24" class="nav-icon"><path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3Zm0 0v15m6-12v15" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Mapa
+      </button>
+      <button class="nav-item" data-view="validacao" type="button">
+        <svg viewBox="0 0 24 24" class="nav-icon"><path d="m9 12 2 2 4-4m5 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Validação
+      </button>
+      <button class="nav-item" data-view="exportacao" type="button">
+        <svg viewBox="0 0 24 24" class="nav-icon"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Exportação
+      </button>
+      <button class="nav-item" data-view="projetos" type="button">
+        <svg viewBox="0 0 24 24" class="nav-icon"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Projetos
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="project-switcher">
+        <label class="project-switcher-label" for="seletor-projeto">Projeto ativo</label>
+        <select id="seletor-projeto" class="project-select"></select>
+      </div>
+      <div id="status-pill" class="status-pill status-pill--idle">Aguardando documento</div>
+      <span class="footer-caption">
+        <strong>© Integral Soluções em Engenharia</strong><br />
+        Desenvolvido por Jonathan David de Abreu
+      </span>
+    </div>
+  </aside>
+
+  <!-- ===================== MAIN ===================== -->
+  <main class="main">
+
+    <!-- ---------- VIEW: NOVA ANALISE ---------- -->
+    <section class="view active" id="view-nova-analise">
+      <header class="view-header">
+        <h1>Análise Geométrica de Matrícula</h1>
+        <p>Envie uma ou mais matrículas/memoriais descritivos. Cada documento é adicionado ao projeto ativo, com sua poligonal própria no mapa.</p>
+      </header>
+
+      <div class="card upload-card">
+        <div id="dropzone" class="dropzone">
+          <svg viewBox="0 0 24 24" class="dropzone-icon"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <p class="dropzone-title">Arraste um ou mais documentos aqui</p>
+          <p class="dropzone-sub">PDF, JPG, JPEG, PNG ou WEBP · até 20&nbsp;MB cada</p>
+          <button id="btn-selecionar" class="btn btn-secondary" type="button">Selecionar documentos</button>
+          <input id="file-input" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" hidden />
+        </div>
+
+        <div id="fila-arquivos" class="fila-arquivos" hidden>
+          <p class="fila-titulo">Documentos selecionados</p>
+          <div id="fila-arquivos-lista" class="fila-arquivos-lista"></div>
+        </div>
+
+        <button id="btn-analisar" class="btn btn-primary" type="button" disabled>Analisar documento(s)</button>
+        <p id="upload-error" class="upload-error" hidden></p>
+      </div>
+
+      <!-- fluxo visual (secao 31) -->
+      <div id="progress-card" class="card progress-card" hidden>
+        <h3 id="progress-titulo">Processando documento</h3>
+        <ol id="progress-steps" class="progress-steps"></ol>
+      </div>
+
+      <!-- resultado resumido do ultimo documento analisado -->
+      <div id="result-summary" class="result-summary" hidden></div>
+    </section>
+
+    <!-- ---------- VIEW: DADOS EXTRAIDOS ---------- -->
+    <section class="view" id="view-dados-extraidos">
+      <header class="view-header">
+        <h1>Dados extraídos</h1>
+        <p>Informações identificadas em cada matrícula do projeto, com evidência textual para auditoria.</p>
+      </header>
+      <div id="dados-extraidos-seletor" class="doc-selector" hidden></div>
+      <div id="dados-extraidos-content" class="empty-state">Envie e analise um documento na aba "Nova análise" para ver os dados extraídos aqui.</div>
+    </section>
+
+    <!-- ---------- VIEW: MAPA ---------- -->
+    <section class="view" id="view-mapa">
+      <header class="view-header">
+        <h1>Mapa e vértices</h1>
+        <p>Todas as matrículas do projeto ativo são exibidas juntas, cada uma com uma cor. Sobreposição é permitida.</p>
+      </header>
+
+      <div id="mapa-empty" class="empty-state">Envie e analise um documento na aba "Nova análise" para visualizar o mapa aqui.</div>
+
+      <div id="mapa-content" hidden>
+        <div class="card map-card">
+          <div class="map-toolbar">
+            <div class="map-toolbar-group">
+              <button id="btn-base-mapa" class="chip chip--active" type="button">Mapa</button>
+              <button id="btn-base-satelite" class="chip" type="button">Satélite</button>
+            </div>
+            <div class="map-toolbar-group">
+              <button id="btn-zoom-in" class="btn-icon" type="button" title="Aumentar zoom">+</button>
+              <button id="btn-zoom-out" class="btn-icon" type="button" title="Diminuir zoom">−</button>
+              <button id="btn-fit" class="btn-icon" type="button" title="Ajustar a todas as matrículas">⤢</button>
+            </div>
+          </div>
+          <div id="map" class="map"></div>
+          <div id="mapa-legenda" class="mapa-legenda"></div>
+        </div>
+
+        <div class="card">
+          <div class="table-header">
+            <h3>Tabela de vértices</h3>
+            <button id="btn-add-vertice" class="btn btn-secondary btn-sm" type="button">+ Adicionar vértice</button>
+          </div>
+          <div id="mapa-tabela-seletor" class="doc-selector" hidden></div>
+          <div class="table-scroll">
+            <table id="tabela-vertices" class="data-table">
+              <thead>
+                <tr>
+                  <th>Vértice</th>
+                  <th>Origem</th>
+                  <th>X / Longitude</th>
+                  <th>Y / Latitude</th>
+                  <th>Distância (m)</th>
+                  <th>Azimute</th>
+                  <th>Confrontante</th>
+                  <th>Confiança</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="tabela-vertices-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Confrontantes</h3>
+          <div id="lista-confrontantes" class="empty-state-inline">Nenhum confrontante identificado.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- VIEW: VALIDACAO ---------- -->
+    <section class="view" id="view-validacao">
+      <header class="view-header">
+        <h1>Validação geométrica</h1>
+        <p>Verificações automáticas sobre a consistência de cada matrícula do projeto.</p>
+      </header>
+      <div id="validacao-content" class="empty-state">Envie e analise um documento na aba "Nova análise" para ver as validações aqui.</div>
+    </section>
+
+    <!-- ---------- VIEW: EXPORTACAO ---------- -->
+    <section class="view" id="view-exportacao">
+      <header class="view-header">
+        <h1>Exportação</h1>
+        <p>Gere arquivos técnicos de uma matrícula específica ou do projeto inteiro.</p>
+      </header>
+      <div id="exportacao-empty" class="empty-state">Envie e analise um documento na aba "Nova análise" para habilitar as exportações.</div>
+      <div id="exportacao-content" hidden>
+        <h3 class="export-section-title">Matrícula selecionada</h3>
+        <div id="exportacao-seletor" class="doc-selector"></div>
+        <div class="export-grid">
+          <button class="card export-btn" id="btn-export-geojson" type="button">
+            <span class="export-btn-title">Exportar GeoJSON</span>
+            <span class="export-btn-sub">Polígono e propriedades desta matrícula</span>
+          </button>
+          <button class="card export-btn" id="btn-export-kml" type="button">
+            <span class="export-btn-title">Exportar KML</span>
+            <span class="export-btn-sub">Compatível com Google Earth</span>
+          </button>
+          <button class="card export-btn" id="btn-export-csv" type="button">
+            <span class="export-btn-title">Exportar CSV</span>
+            <span class="export-btn-sub">Tabela de vértices, distâncias e confrontantes</span>
+          </button>
+          <button class="card export-btn" id="btn-export-txt" type="button">
+            <span class="export-btn-title">Exportar TXT</span>
+            <span class="export-btn-sub">Relatório técnico desta matrícula</span>
+          </button>
+        </div>
+
+        <h3 class="export-section-title">Projeto inteiro</h3>
+        <div class="export-grid">
+          <button class="card export-btn" id="btn-export-projeto-geojson" type="button">
+            <span class="export-btn-title">GeoJSON do projeto</span>
+            <span class="export-btn-sub">Todas as matrículas georreferenciadas, num único arquivo</span>
+          </button>
+          <button class="card export-btn" id="btn-export-projeto-kml" type="button">
+            <span class="export-btn-title">KML do projeto</span>
+            <span class="export-btn-sub">Uma pasta por matrícula, para o Google Earth</span>
+          </button>
+          <button class="card export-btn" id="btn-export-projeto-csv" type="button">
+            <span class="export-btn-title">CSV do projeto</span>
+            <span class="export-btn-sub">Vértices de todas as matrículas, identificados por número</span>
+          </button>
+          <button class="card export-btn" id="btn-export-projeto-txt" type="button">
+            <span class="export-btn-title">Relatório TXT do projeto</span>
+            <span class="export-btn-sub">Todas as matrículas + tabela de matrículas citadas</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- VIEW: PROJETOS ---------- -->
+    <section class="view" id="view-projetos">
+      <header class="view-header">
+        <div class="view-header-row">
+          <div>
+            <h1>Projetos</h1>
+            <p>Um projeto reúne várias matrículas relacionadas. Fica salvo neste navegador — nada é enviado a um servidor.</p>
+          </div>
+          <button id="btn-novo-projeto" class="btn btn-secondary btn-sm" type="button">+ Novo projeto</button>
+        </div>
+      </header>
+
+      <div id="projetos-empty" class="empty-state">Nenhum projeto criado ainda. Analise um documento na aba "Nova análise" para começar um.</div>
+
+      <div id="projetos-content" hidden>
+        <div class="card">
+          <div class="table-header">
+            <h3 id="projeto-ativo-titulo">Projeto</h3>
+            <div>
+              <button id="btn-renomear-projeto" class="btn-icon-text" type="button">Renomear</button>
+              <button id="btn-excluir-projeto" class="btn-icon-text" type="button">Excluir projeto</button>
+            </div>
+          </div>
+          <div id="projeto-documentos-lista" class="table-scroll"></div>
+        </div>
+
+        <div class="card">
+          <h3>Matrículas citadas, ainda não analisadas</h3>
+          <p class="citadas-sub">Números de matrícula mencionados nos documentos deste projeto (confrontantes, registro anterior, substituições) que ainda não foram enviados para análise.</p>
+          <div id="matriculas-citadas-content" class="empty-state-inline">Nenhuma pendência identificada.</div>
+        </div>
+
+        <div class="card">
+          <h3>Todos os projetos</h3>
+          <div id="lista-todos-projetos" class="table-scroll"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
+
+<script src="lib/coordinates.js"></script>
+<script src="lib/geometry.js"></script>
+<script src="lib/export.js"></script>
+<script src="lib/vercel-blob-client.bundle.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
