@@ -122,6 +122,13 @@ REGRAS OBRIGATORIAS E INEGOCIAVEIS (regra fundamental contra alucinacao):
   ordem do memorial, terminando no ULTIMO vertice antes de retornar ao
   primeiro (o segmento de retorno fica no campo distancia/azimute do
   ULTIMO vertice da lista, apontando implicitamente de volta ao primeiro).
+- CRITICO - antes de finalizar a resposta, releia o memorial descritivo e
+  CONTE quantos marcos/pontos/vertices distintos ele realmente menciona
+  (ex: M1, M2, M3, M4 = 4 vertices). O array "vertices" da sua resposta deve
+  ter EXATAMENTE essa quantidade, nem a mais (vertice de fechamento
+  duplicado) nem a menos (vertice pulado). Documentos identicos analisados
+  novamente devem produzir o mesmo numero de vertices - isso e uma extracao
+  factual, nao uma interpretacao variavel.
 - Preencha "sugestao_geografica" SOMENTE se sistema_coordenadas.tipo for UTM e
   zona ou datum estiverem null. Isto e uma EXCECAO deliberada a regra de
   "nunca calcular/inferir": aqui voce pode usar seu conhecimento GERAL de
@@ -458,6 +465,10 @@ async function callClaude(apiKey, model, filename, mimeType, blobUrl) {
   const anthropicPayload = {
     model: model,
     max_tokens: MAX_TOKENS,
+    // temperature baixa (quase deterministica): esta e uma tarefa de extracao
+    // estruturada, nao criativa - o mesmo documento deve produzir o mesmo
+    // resultado em analises repetidas, nao variar o numero de vertices a cada vez.
+    temperature: 0,
     system: SYSTEM_INSTRUCTIONS,
     messages: [{ role: "user", content: userContent }],
     tools: [EXTRACTION_TOOL],
