@@ -105,11 +105,18 @@ REGRAS OBRIGATORIAS E INEGOCIAVEIS (regra fundamental contra alucinacao):
   matriculas de origem/desmembramento, etc). Nao repita numeros.
 - Preencha "historico_registro" com cada ato de registro/averbacao numerado
   que aparecer no documento (R.1, R.2, AV.1, AV.2, etc.), na ordem em que
-  aparecem, com uma descricao BREVE e PARAFRASEADA (nao copie o texto
-  literal) do que cada ato representa - especialmente transferencias de
-  posse/propriedade, usucapiao, hipotecas, penhoras e retificacoes. Se a
-  matricula so tiver o ato de abertura, sem nenhum registro/averbacao
-  posterior, retorne lista vazia.
+  aparecem. IMPORTANTE: mesmo o ato de ABERTURA da matricula (ex: R.1) deve
+  ser incluido se ele proprio ja representa uma transferencia de posse ou
+  propriedade (ex: usucapiao, compra e venda, doacao, heranca/inventario,
+  extincao de condominio) - so retorne lista vazia se a matricula realmente
+  nao tiver NENHUM ato que envolva posse/propriedade/valor alem de dados
+  cadastrais. Preencha "de" (quem transferiu/vendeu, se aplicavel) e "para"
+  (quem recebeu/adquiriu, se aplicavel) com os nomes exatos das partes
+  envolvidas nesse ato especifico - null se o ato nao muda a titularidade
+  (ex: mera retificacao de area). Preencha "valor" com o valor monetario do
+  ato quando o documento mencionar (ex: "Valor do imovel: R$ 10.000,00"),
+  null se nao houver. Use "descricao" para contexto adicional relevante que
+  nao caiba em de/para/valor (ex: motivo, protocolo, mandado judicial).
 - CRITICO - NUNCA crie um vertice extra apenas para representar o fechamento
   do poligono. Quando o memorial diz algo como "...ate encontrar o marco
   inicial M1, ponto de partida desta descricao" ou "fechando o poligono no
@@ -314,7 +321,7 @@ const EXTRACTION_TOOL = {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["ato", "data", "tipo", "descricao"],
+          required: ["ato", "data", "tipo", "de", "para", "valor", "descricao"],
           properties: {
             ato: { type: "string", description: "Identificador do ato como aparece no documento, ex: 'R.1-14.932' ou 'AV.2-16.315'" },
             data: { type: ["string", "null"], description: "Data do ato, como escrita no documento" },
@@ -322,9 +329,21 @@ const EXTRACTION_TOOL = {
               type: ["string", "null"],
               description: "Categoria breve do ato, ex: 'Registro', 'Averbacao', 'Usucapiao', 'Transferencia', 'Hipoteca', 'Penhora', 'Retificacao'"
             },
+            de: {
+              type: ["string", "null"],
+              description: "Nome de quem transferiu/vendeu/cedeu (proprietario anterior), quando o ato envolver transferencia de posse/propriedade. Null se nao aplicavel (ex: hipoteca nao muda o dono)."
+            },
+            para: {
+              type: ["string", "null"],
+              description: "Nome de quem recebeu/adquiriu (novo proprietario ou beneficiario), quando aplicavel. Null se nao aplicavel."
+            },
+            valor: {
+              type: ["string", "null"],
+              description: "Valor monetario do ato, como escrito no documento (com moeda), ex: 'R$ 10.000,00'. Null se o documento nao mencionar valor para este ato."
+            },
             descricao: {
               type: "string",
-              description: "Resumo breve (1-2 frases) do que o ato registra, ex: 'Transferencia de propriedade para Fulano por usucapiao' - parafraseado, nao copiado literalmente do documento"
+              description: "Resumo breve (1-2 frases) do que o ato registra, alem do de/para/valor ja capturados nos campos proprios - parafraseado, nao copiado literalmente do documento"
             }
           }
         }
