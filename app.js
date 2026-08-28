@@ -493,6 +493,37 @@
    * para grau decimal e feita AQUI, deterministicamente, por
    * IntegralCoordinates.parseDMSToDecimal - nunca pela IA.
    */
+  /**
+   * Rede de seguranca deterministica: se, apesar da instrucao no prompt, a IA
+   * ainda assim criar um vertice extra so para representar o fechamento do
+   * poligono (repetindo a mesma coordenada do primeiro vertice, ou com um id
+   * como "M1_fechamento"), remove esse vertice. O fechamento e sempre
+   * implicito (ultimo vertice -> primeiro vertice); um vertice duplicado
+   * quebra a reconstrucao por azimute/distancia sem motivo.
+   */
+  function removerVerticeFechamentoDuplicado(vertices) {
+    if (!vertices || vertices.length < 4) return vertices;
+    var first = vertices[0];
+    var last = vertices[vertices.length - 1];
+
+    var mesmoPontoUTM =
+      first.easting != null && last.easting != null &&
+      Math.abs(first.easting - last.easting) < 0.05 &&
+      Math.abs(first.northing - last.northing) < 0.05;
+
+    var mesmoPontoGeo =
+      first.latitude != null && last.latitude != null &&
+      Math.abs(first.latitude - last.latitude) < 1e-7 &&
+      Math.abs(first.longitude - last.longitude) < 1e-7;
+
+    var idSugereFechamento = /fecham|retorno|fecho|closing/i.test(String(last.id || ""));
+
+    if (mesmoPontoUTM || mesmoPontoGeo || idSugereFechamento) {
+      return vertices.slice(0, -1);
+    }
+    return vertices;
+  }
+
   function buildDocumentoFromExtraction(dados, nomeArquivo) {
     var vertices = (dados.vertices || []).map(function (v) {
       var lat = v.latitude_texto ? IntegralCoordinates.parseDMSToDecimal(v.latitude_texto) : null;
@@ -515,6 +546,8 @@
       };
     });
 
+    vertices = removerVerticeFechamentoDuplicado(vertices);
+
     var doc = {
       id: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
       nomeArquivo: nomeArquivo,
@@ -531,6 +564,7 @@
       // sugestao da IA (conhecimento geral, NAO extraido do documento) - so usada para
       // pre-preencher o formulario manual; nunca aplicada a sistema sem confirmacao do usuario
       sugestaoGeografica: dados.sugestao_geografica || null,
+      historicoRegistro: dados.historico_registro || [],
       // campos computados por computeDocumento():
       coordsLngLat: [],
       resolvedIndexes: [],
@@ -813,12 +847,13 @@
     renderAllForActiveProject();
     renderProjetos();
 
-    if (doc.semPosicionamentoAbsoluto) {
-      // sistema de referencia completo, mas ainda assim nao posicionou: o problema
-      // esta nos proprios vertices (easting/northing nao foram extraidos do documento)
+    if (doc.resolvedIndexes.length === 0) {
+      // sistema de referencia completo, mas mesmo assim nenhum vertice posicionou:
+      // o problema esta nos proprios vertices (easting/northing/lat-long nao
+      // foram extraidos do documento para nenhum deles)
       alert(
         "O sistema de coordenadas foi salvo, mas a matricula ainda nao pode ser posicionada no mapa: " +
-        "os proprios vertices desta analise nao tem coordenadas UTM registradas (nao e so o datum/zona que faltava). " +
+        "os proprios vertices desta analise nao tem coordenadas registradas (nao e so o datum/zona que faltava). " +
         "Tente remover esta matricula do projeto (aba Projetos) e analisar o documento de novo - " +
         "isso vai refazer a extracao e pode corrigir o problema."
       );
@@ -1027,9 +1062,19 @@
         '<button class="btn-icon-text" id="btn-remover-sistema-manual" type="button">Remover e voltar ao original</button></p>';
     }
 
+    // O botao de informar sistema manualmente deve aparecer sempre que:
+    // (a) o sistema e UTM (ou nao identificado) e falta datum/zona/hemisferio, E
+    // (b) nenhum vertice foi posicionado de forma absoluta ainda.
+    // Isso e INDEPENDENTE de semPosicionamentoAbsoluto (que reflete apenas se
+    // a reconstrucao relativa por azimute/distancia deu certo) - mesmo que essa
+    // reconstrucao falhe por outro motivo, preencher o sistema pode resolver
+    // via posicionamento absoluto direto (easting/northing de cada vertice).
+    var faltaDadoSistema =
+      doc.sistema.datum == null || doc.sistema.zona == null || doc.sistema.hemisferio == null;
     var precisaSistemaManual =
-      doc.semPosicionamentoAbsoluto &&
-      (doc.sistema.tipo === "UTM" || doc.sistema.tipo == null);
+      (doc.sistema.tipo === "UTM" || doc.sistema.tipo == null) &&
+      faltaDadoSistema &&
+      doc.resolvedIndexes.length === 0;
 
     if (precisaSistemaManual) {
       if (state.formSistemaManualDocId === doc.id) {
@@ -1069,6 +1114,21 @@
         "</div>";
     });
     html += "</div>";
+
+    if (doc.historicoRegistro && doc.historicoRegistro.length) {
+      html += '<div class="card"><h3>Historico de posse e transicao</h3>';
+      html += '<div class="table-scroll"><table class="data-table"><thead><tr>';
+      html += "<th>Ato</th><th>Data</th><th>Tipo</th><th>Descricao</th>";
+      html += "</tr></thead><tbody>";
+      doc.historicoRegistro.forEach(function (h) {
+        html +=
+          "<tr><td class=\"mono\">" + esc(h.ato) + "</td>" +
+          "<td>" + esc(h.data || "N/D") + "</td>" +
+          "<td>" + esc(h.tipo || "N/D") + "</td>" +
+          "<td>" + esc(h.descricao) + "</td></tr>";
+      });
+      html += "</tbody></table></div></div>";
+    }
 
     if (doc.alertasIA && doc.alertasIA.length) {
       html += '<div class="card"><h3>Alertas da leitura</h3><table class="data-table report-table"><tbody>';
