@@ -1252,6 +1252,26 @@
         aplicarSistemaManual(doc, datum, zona, hemisferio, camposAlterados);
       });
     }
+
+    // Auto-verificacao: alguns navegadores/extensoes (ex: Google Tradutor) podem
+    // reescrever o DOM depois que renderizamos e "perder" elementos dinamicos
+    // recem-inseridos. Confere pouco depois se o que deveria estar visivel
+    // ainda esta la; se sumiu, tenta redesenhar UMA vez (evita loop infinito
+    // via flag) e deixa um aviso claro no console para diagnostico.
+    if (precisaSistemaManual && !doc._tentouRedesenharSistemaManual) {
+      setTimeout(function () {
+        var aindaLa = document.getElementById("btn-abrir-sistema-manual") || document.getElementById("btn-aplicar-sistema-manual");
+        if (!aindaLa && getSelectedDocument() === doc) {
+          console.warn(
+            "[INTEGRAL GEO MATRICULA] O botao de sistema de coordenadas foi renderizado mas desapareceu do DOM logo em seguida. " +
+            "Isso normalmente indica uma extensao do navegador (ex: Google Tradutor, leitor de pagina) reescrevendo o conteudo. " +
+            "Tentando redesenhar uma vez..."
+          );
+          doc._tentouRedesenharSistemaManual = true;
+          renderDadosExtraidos();
+        }
+      }, 400);
+    }
   }
 
   function panelTable(title, rows) {
