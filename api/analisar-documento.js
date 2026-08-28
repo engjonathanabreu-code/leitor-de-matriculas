@@ -103,6 +103,25 @@ REGRAS OBRIGATORIAS E INEGOCIAVEIS (regra fundamental contra alucinacao):
   no texto que sejam DIFERENTES da matricula sendo analisada (registro
   anterior, confrontantes que citam numero de matricula, substituicoes,
   matriculas de origem/desmembramento, etc). Nao repita numeros.
+- Preencha "historico_registro" com cada ato de registro/averbacao numerado
+  que aparecer no documento (R.1, R.2, AV.1, AV.2, etc.), na ordem em que
+  aparecem, com uma descricao BREVE e PARAFRASEADA (nao copie o texto
+  literal) do que cada ato representa - especialmente transferencias de
+  posse/propriedade, usucapiao, hipotecas, penhoras e retificacoes. Se a
+  matricula so tiver o ato de abertura, sem nenhum registro/averbacao
+  posterior, retorne lista vazia.
+- CRITICO - NUNCA crie um vertice extra apenas para representar o fechamento
+  do poligono. Quando o memorial diz algo como "...ate encontrar o marco
+  inicial M1, ponto de partida desta descricao" ou "fechando o poligono no
+  ponto inicial", isso significa que o ULTIMO segmento (distancia/azimute)
+  liga o ultimo vertice de volta ao PRIMEIRO vertice ja listado - NAO crie um
+  vertice novo (nunca use um id como "M1_fechamento", "fechamento",
+  "retorno" ou repita o mesmo id com sufixo). O poligono e sempre fechado
+  implicitamente pelo sistema (ultimo vertice conecta ao primeiro); a lista
+  de vertices deve conter cada ponto fisico distinto exatamente uma vez, na
+  ordem do memorial, terminando no ULTIMO vertice antes de retornar ao
+  primeiro (o segmento de retorno fica no campo distancia/azimute do
+  ULTIMO vertice da lista, apontando implicitamente de volta ao primeiro).
 - Preencha "sugestao_geografica" SOMENTE se sistema_coordenadas.tipo for UTM e
   zona ou datum estiverem null. Isto e uma EXCECAO deliberada a regra de
   "nunca calcular/inferir": aqui voce pode usar seu conhecimento GERAL de
@@ -141,6 +160,7 @@ const EXTRACTION_TOOL = {
       "situacao_matricula",
       "matriculas_citadas",
       "sugestao_geografica",
+      "historico_registro",
       "vertices",
       "confrontantes",
       "alertas"
@@ -274,6 +294,31 @@ const EXTRACTION_TOOL = {
           justificativa: {
             type: ["string", "null"],
             description: "breve explicacao, ex: 'Municipio de Anita Garibaldi/SC esta inteiramente na zona UTM 22; SIRGAS2000 e o datum oficial brasileiro desde 2005'"
+          }
+        }
+      },
+      historico_registro: {
+        type: "array",
+        description:
+          "Historico cronologico de atos de registro/averbacao da matricula (ex: R.1, R.2, AV.1, AV.2, Usucapiao, " +
+          "transporte, transferencia de posse/propriedade, hipoteca, penhora, etc.), na ordem em que aparecem no " +
+          "documento. Inclua apenas atos que tenham numero/ato identificavel no texto (ex: 'R.1-14.932', " +
+          "'AV.2-16.315'). Se o documento nao tiver nenhum ato alem da abertura da matricula, retorne lista vazia.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["ato", "data", "tipo", "descricao"],
+          properties: {
+            ato: { type: "string", description: "Identificador do ato como aparece no documento, ex: 'R.1-14.932' ou 'AV.2-16.315'" },
+            data: { type: ["string", "null"], description: "Data do ato, como escrita no documento" },
+            tipo: {
+              type: ["string", "null"],
+              description: "Categoria breve do ato, ex: 'Registro', 'Averbacao', 'Usucapiao', 'Transferencia', 'Hipoteca', 'Penhora', 'Retificacao'"
+            },
+            descricao: {
+              type: "string",
+              description: "Resumo breve (1-2 frases) do que o ato registra, ex: 'Transferencia de propriedade para Fulano por usucapiao' - parafraseado, nao copiado literalmente do documento"
+            }
           }
         }
       },
