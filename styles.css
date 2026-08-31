@@ -1111,3 +1111,9 @@ button, input{ font-family: inherit; }
 .usuario-papel--usuario{ background: #f1f2f6; color: var(--text-secondary); }
 .usuario-remover{ font-size: 11.5px; color: var(--error); flex-shrink: 0; }
 .usuario-voce{ font-size: 11px; color: var(--text-muted); font-weight: 600; flex-shrink: 0; }
+
+.usuario-card--sem-acesso{ opacity: 0.75; border-style: dashed; }
+.usuario-papel--sem-acesso{ background: #f1f2f6; color: var(--text-muted); }
+.usuario-dar-acesso{ color: var(--ok); font-weight: 700; flex-shrink: 0; }
+
+.proj-row-dono{ font-weight: 500; color: var(--text-muted); font-size: 12px; }
