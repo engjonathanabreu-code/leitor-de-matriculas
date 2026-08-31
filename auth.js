@@ -141,7 +141,9 @@
           '<div class="usuario-card-topo">' +
           '<div class="usuario-avatar">' + esc(iniciaisDoNome(u.nome, u.email)) + "</div>" +
           '<div class="usuario-info">' +
-          '<div class="usuario-nome" title="' + esc(u.nome || u.email) + '">' + esc(u.nome || u.email) + "</div>" +
+          '<div class="usuario-nome" title="' + esc(u.nome || u.email) + '">' + esc(u.nome || u.email) +
+          (semAcesso ? "" : ' <button type="button" class="usuario-editar-nome" data-editar-nome="' + u.userId + '" data-nome-atual="' + esc(u.nome || "") + '" title="Editar nome">✎</button>') +
+          "</div>" +
           '<div class="usuario-email" title="' + esc(u.email) + '">' + esc(u.email) + "</div>" +
           "</div></div>" +
           '<div class="usuario-card-rodape">' + badgeHtml + acaoHtml + "</div>" +
@@ -149,6 +151,19 @@
       });
       html += "</div>";
       container.innerHTML = html;
+
+      container.querySelectorAll("[data-editar-nome]").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var novoNome = window.prompt("Nome para exibir no lugar do e-mail:", btn.dataset.nomeAtual || "");
+          if (!novoNome || !novoNome.trim()) return;
+          try {
+            await chamarApiComAuth("/api/admin/atualizar-nome-usuario", "POST", { userId: btn.dataset.editarNome, nome: novoNome.trim() });
+            renderUsuarios();
+          } catch (err) {
+            alert("Erro ao atualizar nome: " + err.message);
+          }
+        });
+      });
 
       container.querySelectorAll("[data-dar-acesso]").forEach(function (btn) {
         btn.addEventListener("click", async function () {
