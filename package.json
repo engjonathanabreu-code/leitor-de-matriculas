@@ -1,0 +1,17 @@
+{
+  "name": "leitor-de-matriculas-interno",
+  "version": "1.0.0",
+  "description": "Uso interno (Integral Solucoes em Engenharia): analise geometrica de matriculas imobiliarias e memoriais descritivos com IA + geoprocessamento deterministico.",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18.x"
+  },
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.0",
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}
