@@ -2062,15 +2062,14 @@
     }
 
     var meuUserId = window.__auth ? window.__auth.getUserId() : null;
+    var souAdmin = window.__auth && window.__auth.ehAdmin();
     var todosEl = document.getElementById("lista-todos-projetos");
-    var h2 = state.projetos.map(function (p) {
-      var deOutraPessoa = p.userId && p.userId !== meuUserId;
+
+    function linhaProjeto(p) {
       return (
         '<div class="proj-row' + (p.id === state.projetoAtivoId ? " is-active" : "") + '">' +
         '<div class="proj-row-info"><div>' +
-        '<div class="proj-row-name">' + esc(p.nome) +
-        (deOutraPessoa ? ' <span class="proj-row-dono">· ' + esc(p.donoNome || p.donoEmail || "outro usuario") + "</span>" : "") +
-        "</div>" +
+        '<div class="proj-row-name">' + esc(p.nome) + "</div>" +
         '<div class="proj-row-meta">' + p.documentos.length + " documento(s)</div>" +
         "</div></div>" +
         '<div class="proj-row-actions">' +
@@ -2079,8 +2078,43 @@
           : '<button class="btn-icon-text" data-switch-proj="' + p.id + '">Ativar</button>') +
         "</div></div>"
       );
-    }).join("");
-    todosEl.innerHTML = h2;
+    }
+
+    if (souAdmin) {
+      // Agrupa por dono - cada usuario vira uma mini-aba expansivel (acordeao nativo)
+      var grupos = {};
+      var ordemGrupos = [];
+      state.projetos.forEach(function (p) {
+        var uid = p.userId || "desconhecido";
+        if (!grupos[uid]) {
+          grupos[uid] = { nome: p.donoNome, email: p.donoEmail, projetos: [] };
+          ordemGrupos.push(uid);
+        }
+        grupos[uid].projetos.push(p);
+      });
+      // O proprio usuario aparece primeiro e ja vem aberto
+      ordemGrupos.sort(function (a, b) {
+        if (a === meuUserId) return -1;
+        if (b === meuUserId) return 1;
+        return 0;
+      });
+
+      todosEl.innerHTML = ordemGrupos.map(function (uid) {
+        var g = grupos[uid];
+        var souEu = uid === meuUserId;
+        var label = souEu ? "Você" : (g.nome || g.email || "Usuário desconhecido");
+        return (
+          '<details class="usuario-projetos-grupo"' + (souEu ? " open" : "") + '>' +
+          "<summary><span>" + esc(label) + "</span>" +
+          '<span class="usuario-projetos-count">' + g.projetos.length + " projeto(s)</span></summary>" +
+          '<div class="usuario-projetos-lista">' + g.projetos.map(linhaProjeto).join("") + "</div>" +
+          "</details>"
+        );
+      }).join("");
+    } else {
+      todosEl.innerHTML = state.projetos.map(linhaProjeto).join("");
+    }
+
     todosEl.querySelectorAll("[data-switch-proj]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         switchProject(btn.dataset.switchProj);
