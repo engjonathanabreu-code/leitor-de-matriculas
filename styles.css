@@ -1085,17 +1085,20 @@ button, input{ font-family: inherit; }
 }
 .usuario-logado-nome{ font-size: 12.5px; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.usuarios-grid{ display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.usuarios-grid{ display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .usuario-card{
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
-  padding: 14px;
+  padding: 16px;
   background: #fff;
+  transition: box-shadow 0.15s;
 }
+.usuario-card:hover{ box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
 .usuario-card--inativo{ opacity: 0.55; }
+.usuario-card-topo{ display: flex; align-items: center; gap: 12px; }
 .usuario-avatar{
   width: 40px; height: 40px; border-radius: 50%;
   background: linear-gradient(160deg, var(--accent), var(--accent-dark));
@@ -1105,8 +1108,8 @@ button, input{ font-family: inherit; }
 }
 .usuario-info{ flex: 1; min-width: 0; }
 .usuario-nome{ font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.usuario-email{ font-size: 11.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
-.usuario-papel{ font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; display: inline-block; }
+.usuario-email{ font-size: 11.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usuario-papel{ font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; display: inline-block; white-space: nowrap; }
 .usuario-papel--admin{ background: var(--accent-soft); color: var(--accent); }
 .usuario-papel--usuario{ background: #f1f2f6; color: var(--text-secondary); }
 .usuario-remover{ font-size: 11.5px; color: var(--error); flex-shrink: 0; }
@@ -1116,4 +1119,38 @@ button, input{ font-family: inherit; }
 .usuario-papel--sem-acesso{ background: #f1f2f6; color: var(--text-muted); }
 .usuario-dar-acesso{ color: var(--ok); font-weight: 700; flex-shrink: 0; }
 
+.usuario-card-rodape{ display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
 .proj-row-dono{ font-weight: 500; color: var(--text-muted); font-size: 12px; }
+
+/* Acordeao "Projetos por usuario" (visivel so para admin) */
+.usuario-projetos-grupo{
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.usuario-projetos-grupo summary{
+  cursor: pointer;
+  padding: 13px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  list-style: none;
+  user-select: none;
+}
+.usuario-projetos-grupo summary::-webkit-details-marker{ display: none; }
+.usuario-projetos-grupo summary::before{
+  content: "▸";
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+.usuario-projetos-grupo[open] summary::before{ transform: rotate(90deg); }
+.usuario-projetos-count{ font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+.usuario-projetos-lista{ border-top: 1px solid var(--border); padding: 6px 12px 10px; }
+.usuario-projetos-lista .proj-row{ padding-left: 4px; padding-right: 4px; }
