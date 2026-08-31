@@ -127,21 +127,24 @@
       var html = '<div class="usuarios-grid">';
       json.usuarios.forEach(function (u) {
         var semAcesso = !u.temAcesso;
+        var acaoHtml = u.userId === state.session.user.id
+          ? '<span class="usuario-voce">Você</span>'
+          : semAcesso
+            ? '<button class="btn-icon-text usuario-dar-acesso" data-dar-acesso="' + u.userId + '" title="Liberar acesso">Dar acesso</button>'
+            : '<button class="btn-icon-text usuario-remover" data-remover-usuario="' + u.userId + '" title="Remover acesso">Remover</button>';
+        var badgeHtml = semAcesso
+          ? '<span class="usuario-papel usuario-papel--sem-acesso">Sem acesso</span>'
+          : '<span class="usuario-papel usuario-papel--' + u.papel + '">' + (u.papel === "admin" ? "Administrador" : "Usuário") + "</span>";
+
         html +=
           '<div class="usuario-card' + (semAcesso ? " usuario-card--sem-acesso" : (!u.ativo ? " usuario-card--inativo" : "")) + '">' +
+          '<div class="usuario-card-topo">' +
           '<div class="usuario-avatar">' + esc(iniciaisDoNome(u.nome, u.email)) + "</div>" +
           '<div class="usuario-info">' +
-          '<div class="usuario-nome">' + esc(u.nome || u.email) + "</div>" +
-          '<div class="usuario-email">' + esc(u.email) + "</div>" +
-          (semAcesso
-            ? '<span class="usuario-papel usuario-papel--sem-acesso">Sem acesso ao Matricula.IA</span>'
-            : '<span class="usuario-papel usuario-papel--' + u.papel + '">' + (u.papel === "admin" ? "Administrador" : "Usuario") + "</span>") +
-          "</div>" +
-          (u.userId === state.session.user.id
-            ? '<span class="usuario-voce">Voce</span>'
-            : semAcesso
-              ? '<button class="btn-icon-text usuario-dar-acesso" data-dar-acesso="' + u.userId + '" title="Liberar acesso">Dar acesso</button>'
-              : '<button class="btn-icon-text usuario-remover" data-remover-usuario="' + u.userId + '" title="Remover acesso">Remover</button>') +
+          '<div class="usuario-nome" title="' + esc(u.nome || u.email) + '">' + esc(u.nome || u.email) + "</div>" +
+          '<div class="usuario-email" title="' + esc(u.email) + '">' + esc(u.email) + "</div>" +
+          "</div></div>" +
+          '<div class="usuario-card-rodape">' + badgeHtml + acaoHtml + "</div>" +
           "</div>";
       });
       html += "</div>";
