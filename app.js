@@ -2067,7 +2067,7 @@
 
     function linhaProjeto(p) {
       return (
-        '<div class="proj-row' + (p.id === state.projetoAtivoId ? " is-active" : "") + '">' +
+        '<div class="proj-row proj-row--clicavel' + (p.id === state.projetoAtivoId ? " is-active" : "") + '" data-abrir-proj="' + p.id + '">' +
         '<div class="proj-row-info"><div>' +
         '<div class="proj-row-name">' + esc(p.nome) + "</div>" +
         '<div class="proj-row-meta">' + p.documentos.length + " documento(s)</div>" +
@@ -2075,7 +2075,7 @@
         '<div class="proj-row-actions">' +
         (p.id === state.projetoAtivoId
           ? '<span style="color:var(--accent);font-weight:700;font-size:12px;">Ativo</span>'
-          : '<button class="btn-icon-text" data-switch-proj="' + p.id + '">Ativar</button>') +
+          : '<span class="btn-icon-text">Abrir →</span>') +
         "</div></div>"
       );
     }
@@ -2096,7 +2096,12 @@
       ordemGrupos.sort(function (a, b) {
         if (a === meuUserId) return -1;
         if (b === meuUserId) return 1;
-        return 0;
+        var aConhecido = !!(grupos[a].nome || grupos[a].email);
+        var bConhecido = !!(grupos[b].nome || grupos[b].email);
+        if (aConhecido !== bConhecido) return aConhecido ? -1 : 1;
+        var labelA = grupos[a].nome || grupos[a].email || "";
+        var labelB = grupos[b].nome || grupos[b].email || "";
+        return labelA.localeCompare(labelB);
       });
 
       todosEl.innerHTML = ordemGrupos.map(function (uid) {
@@ -2115,11 +2120,10 @@
       todosEl.innerHTML = state.projetos.map(linhaProjeto).join("");
     }
 
-    todosEl.querySelectorAll("[data-switch-proj]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        switchProject(btn.dataset.switchProj);
-        renderProjetos();
-        renderAllForActiveProject();
+    todosEl.querySelectorAll("[data-abrir-proj]").forEach(function (row) {
+      row.addEventListener("click", function () {
+        switchProject(row.dataset.abrirProj);
+        goToView("dados-extraidos");
       });
     });
   }
