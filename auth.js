@@ -132,6 +132,9 @@
           : semAcesso
             ? '<button class="btn-icon-text usuario-dar-acesso" data-dar-acesso="' + u.userId + '" title="Liberar acesso">Dar acesso</button>'
             : '<button class="btn-icon-text usuario-remover" data-remover-usuario="' + u.userId + '" title="Remover acesso">Remover</button>';
+        var editarNomeHtml = semAcesso
+          ? ""
+          : '<button class="btn-icon-text usuario-editar-nome" data-editar-nome="' + u.userId + '" data-nome-atual="' + esc(u.nome || "") + '" title="Editar nome">Editar nome</button>';
         var badgeHtml = semAcesso
           ? '<span class="usuario-papel usuario-papel--sem-acesso">Sem acesso</span>'
           : '<span class="usuario-papel usuario-papel--' + u.papel + '">' + (u.papel === "admin" ? "Administrador" : "Usuário") + "</span>";
@@ -141,13 +144,12 @@
           '<div class="usuario-card-topo">' +
           '<div class="usuario-avatar">' + esc(iniciaisDoNome(u.nome, u.email)) + "</div>" +
           '<div class="usuario-info">' +
-          '<div class="usuario-nome" title="' + esc(u.nome || u.email) + '">' + esc(u.nome || u.email) +
-          (semAcesso ? "" : ' <button type="button" class="usuario-editar-nome" data-editar-nome="' + u.userId + '" data-nome-atual="' + esc(u.nome || "") + '" title="Editar nome">✎</button>') +
-          "</div>" +
+          '<div class="usuario-nome" title="' + esc(u.nome || u.email) + '">' + esc(u.nome || u.email) + "</div>" +
           '<div class="usuario-email" title="' + esc(u.email) + '">' + esc(u.email) + "</div>" +
           "</div></div>" +
-          '<div class="usuario-card-rodape">' + badgeHtml + acaoHtml + "</div>" +
-          "</div>";
+          '<div class="usuario-card-rodape">' + badgeHtml +
+          '<div class="usuario-card-acoes">' + editarNomeHtml + acaoHtml + "</div>" +
+          "</div></div>";
       });
       html += "</div>";
       container.innerHTML = html;
