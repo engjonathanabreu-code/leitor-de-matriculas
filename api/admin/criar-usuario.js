@@ -33,43 +33,50 @@ module.exports = async function handler(req, res) {
     }
 
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const userIdDireto = body && body.userId;
     const email = (body && body.email || "").trim().toLowerCase();
     const senha = body && body.senha;
     const nome = (body && body.nome || "").trim();
     const papel = body && body.papel === "admin" ? "admin" : "usuario";
 
-    if (!email) {
-      return res.status(400).json({ sucesso: false, erro: "E-mail e obrigatorio." });
-    }
+    var userId = null;
 
-    // Tenta criar uma conta nova primeiro
-    let userId = null;
-    if (senha) {
-      const { data: criado, error: erroCriar } = await admin.auth.admin.createUser({
-        email: email,
-        password: senha,
-        email_confirm: true
-      });
-      if (criado && criado.user) {
-        userId = criado.user.id;
-      } else if (erroCriar && !/already.*registered|already.*exists/i.test(erroCriar.message || "")) {
-        throw erroCriar;
+    if (userIdDireto) {
+      // Caminho rapido: clicou em "Dar acesso" direto na lista de funcionarios do ERP
+      userId = userIdDireto;
+    } else {
+      if (!email) {
+        return res.status(400).json({ sucesso: false, erro: "E-mail e obrigatorio." });
       }
-    }
 
-    // Se nao criou (porque ja existia, ou porque nenhuma senha foi informada
-    // de proposito para reaproveitar conta existente), procura pelo e-mail
-    if (!userId) {
-      const { data: lista, error: erroLista } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-      if (erroLista) throw erroLista;
-      const encontrado = (lista.users || []).find(function (u) { return (u.email || "").toLowerCase() === email; });
-      if (!encontrado) {
-        return res.status(404).json({
-          sucesso: false,
-          erro: "Nenhuma conta encontrada com este e-mail (nem no ERP). Informe uma senha para criar uma conta nova."
+      // Tenta criar uma conta nova primeiro
+      if (senha) {
+        const { data: criado, error: erroCriar } = await admin.auth.admin.createUser({
+          email: email,
+          password: senha,
+          email_confirm: true
         });
+        if (criado && criado.user) {
+          userId = criado.user.id;
+        } else if (erroCriar && !/already.*registered|already.*exists/i.test(erroCriar.message || "")) {
+          throw erroCriar;
+        }
       }
-      userId = encontrado.id;
+
+      // Se nao criou (porque ja existia, ou porque nenhuma senha foi informada
+      // de proposito para reaproveitar conta existente), procura pelo e-mail
+      if (!userId) {
+        const { data: lista, error: erroLista } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+        if (erroLista) throw erroLista;
+        const encontrado = (lista.users || []).find(function (u) { return (u.email || "").toLowerCase() === email; });
+        if (!encontrado) {
+          return res.status(404).json({
+            sucesso: false,
+            erro: "Nenhuma conta encontrada com este e-mail (nem no ERP). Informe uma senha para criar uma conta nova."
+          });
+        }
+        userId = encontrado.id;
+      }
     }
 
     const { error: erroUpsert } = await admin.from("matriculaia_usuarios").upsert({
