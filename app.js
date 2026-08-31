@@ -104,16 +104,26 @@
       var docs = (docsPorProjeto[p.id] || []).sort(function (a, b) {
         return new Date(a.dataAnalise) - new Date(b.dataAnalise);
       });
-      return { id: p.id, nome: p.nome, criadoEm: p.criado_em, atualizadoEm: p.atualizado_em, documentos: docs };
+      return {
+        id: p.id, nome: p.nome, criadoEm: p.criado_em, atualizadoEm: p.atualizado_em,
+        userId: p.user_id, donoEmail: p.dono_email, donoNome: p.dono_nome,
+        documentos: docs
+      };
     });
   }
 
   async function criarProjetoNoServidor(id, nome) {
     var client = sb();
     var userResp = await client.auth.getUser();
-    var userId = userResp.data && userResp.data.user ? userResp.data.user.id : null;
-    if (!userId) return;
-    var { error } = await client.from("matriculaia_projetos").insert({ id: id, user_id: userId, nome: nome });
+    var user = userResp.data && userResp.data.user ? userResp.data.user : null;
+    if (!user) return;
+    var { error } = await client.from("matriculaia_projetos").insert({
+      id: id,
+      user_id: user.id,
+      nome: nome,
+      dono_email: user.email,
+      dono_nome: (window.__auth && window.__auth.getNomeUsuario()) || null
+    });
     if (error) console.error("[sync] falha ao criar projeto:", error.message);
   }
 
@@ -478,6 +488,15 @@
 
     var project = ensureActiveProject();
     if (!project) return; // usuario cancelou a criacao do projeto
+
+    var meuUserId = window.__auth ? window.__auth.getUserId() : null;
+    if (project.userId && meuUserId && project.userId !== meuUserId) {
+      showUploadError(
+        'Este projeto ("' + project.nome + '") pertence a outro usuario - voce so pode visualiza-lo. ' +
+        "Crie ou ative um projeto seu na aba Projetos para analisar novos documentos."
+      );
+      return;
+    }
 
     state.processandoFila = true;
     document.getElementById("btn-analisar").disabled = true;
@@ -2042,12 +2061,16 @@
       citEl.innerHTML = h;
     }
 
+    var meuUserId = window.__auth ? window.__auth.getUserId() : null;
     var todosEl = document.getElementById("lista-todos-projetos");
     var h2 = state.projetos.map(function (p) {
+      var deOutraPessoa = p.userId && p.userId !== meuUserId;
       return (
         '<div class="proj-row' + (p.id === state.projetoAtivoId ? " is-active" : "") + '">' +
         '<div class="proj-row-info"><div>' +
-        '<div class="proj-row-name">' + esc(p.nome) + "</div>" +
+        '<div class="proj-row-name">' + esc(p.nome) +
+        (deOutraPessoa ? ' <span class="proj-row-dono">· ' + esc(p.donoNome || p.donoEmail || "outro usuario") + "</span>" : "") +
+        "</div>" +
         '<div class="proj-row-meta">' + p.documentos.length + " documento(s)</div>" +
         "</div></div>" +
         '<div class="proj-row-actions">' +
