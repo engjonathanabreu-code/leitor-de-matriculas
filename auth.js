@@ -121,26 +121,46 @@
 
   async function renderUsuarios() {
     var container = document.getElementById("usuarios-content");
-    container.innerHTML = '<p class="empty-state-inline">Carregando usuarios...</p>';
+    container.innerHTML = '<p class="empty-state-inline">Carregando funcionarios do ERP...</p>';
     try {
       var json = await chamarApiComAuth("/api/admin/listar-usuarios", "GET");
       var html = '<div class="usuarios-grid">';
       json.usuarios.forEach(function (u) {
+        var semAcesso = !u.temAcesso;
         html +=
-          '<div class="usuario-card' + (!u.ativo ? " usuario-card--inativo" : "") + '">' +
+          '<div class="usuario-card' + (semAcesso ? " usuario-card--sem-acesso" : (!u.ativo ? " usuario-card--inativo" : "")) + '">' +
           '<div class="usuario-avatar">' + esc(iniciaisDoNome(u.nome, u.email)) + "</div>" +
           '<div class="usuario-info">' +
           '<div class="usuario-nome">' + esc(u.nome || u.email) + "</div>" +
           '<div class="usuario-email">' + esc(u.email) + "</div>" +
-          '<span class="usuario-papel usuario-papel--' + u.papel + '">' + (u.papel === "admin" ? "Administrador" : "Usuario") + "</span>" +
+          (semAcesso
+            ? '<span class="usuario-papel usuario-papel--sem-acesso">Sem acesso ao Matricula.IA</span>'
+            : '<span class="usuario-papel usuario-papel--' + u.papel + '">' + (u.papel === "admin" ? "Administrador" : "Usuario") + "</span>") +
           "</div>" +
-          (u.userId !== state.session.user.id
-            ? '<button class="btn-icon-text usuario-remover" data-remover-usuario="' + u.userId + '" title="Remover acesso">Remover</button>'
-            : '<span class="usuario-voce">Voce</span>') +
+          (u.userId === state.session.user.id
+            ? '<span class="usuario-voce">Voce</span>'
+            : semAcesso
+              ? '<button class="btn-icon-text usuario-dar-acesso" data-dar-acesso="' + u.userId + '" title="Liberar acesso">Dar acesso</button>'
+              : '<button class="btn-icon-text usuario-remover" data-remover-usuario="' + u.userId + '" title="Remover acesso">Remover</button>') +
           "</div>";
       });
       html += "</div>";
       container.innerHTML = html;
+
+      container.querySelectorAll("[data-dar-acesso]").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          btn.disabled = true;
+          btn.textContent = "Liberando...";
+          try {
+            await chamarApiComAuth("/api/admin/criar-usuario", "POST", { userId: btn.dataset.darAcesso, papel: "usuario" });
+            renderUsuarios();
+          } catch (err) {
+            alert("Erro ao liberar acesso: " + err.message);
+            btn.disabled = false;
+            btn.textContent = "Dar acesso";
+          }
+        });
+      });
 
       container.querySelectorAll("[data-remover-usuario]").forEach(function (btn) {
         btn.addEventListener("click", async function () {
@@ -227,6 +247,8 @@
   window.__auth = {
     getAccessToken: function () { return state.session ? state.session.access_token : null; },
     ehAdmin: function () { return !!(state.usuarioInterno && state.usuarioInterno.papel === "admin"); },
+    getNomeUsuario: function () { return state.usuarioInterno ? state.usuarioInterno.nome : null; },
+    getUserId: function () { return state.session ? state.session.user.id : null; },
     renderUsuarios: renderUsuarios
   };
 })();
