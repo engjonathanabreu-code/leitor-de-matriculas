@@ -1,8 +1,10 @@
 /**
  * api/admin/listar-usuarios.js
  * ---------------------------------------------------------------------------
- * Lista os usuarios com acesso ao Matricula.IA Interno. So administradores
- * podem chamar esta rota.
+ * Lista TODOS os funcionarios que existem no ERP Integral (mesma base de
+ * autenticacao), marcando quem ja tem acesso liberado ao Matricula.IA e
+ * quem ainda nao tem - assim o admin pode liberar com um clique, sem
+ * precisar digitar e-mail de cabeca.
  * ---------------------------------------------------------------------------
  */
 const { getSupabaseAdmin, getAuthenticatedUser } = require("../../server/supabaseAdmin");
@@ -21,25 +23,37 @@ module.exports = async function handler(req, res) {
       return res.status(403).json({ sucesso: false, erro: "Somente administradores podem ver esta lista." });
     }
 
-    const { data: linhas, error } = await admin
-      .from("matriculaia_usuarios")
-      .select("user_id, nome, papel, ativo, criado_em")
-      .order("criado_em", { ascending: true });
-    if (error) throw error;
+    // Todos os funcionarios do ERP (mesma base de auth.users)
+    const { data: listaAuth, error: erroAuth } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    if (erroAuth) throw erroAuth;
 
-    // Busca o e-mail de cada um via Admin API (nao fica na tabela propria, vem do auth.users)
-    const usuarios = [];
-    for (const linha of linhas) {
-      const { data: authData } = await admin.auth.admin.getUserById(linha.user_id);
-      usuarios.push({
-        userId: linha.user_id,
-        email: authData && authData.user ? authData.user.email : "(desconhecido)",
-        nome: linha.nome,
-        papel: linha.papel,
-        ativo: linha.ativo,
-        criadoEm: linha.criado_em
+    // Quem ja tem acesso liberado ao Matricula.IA, com nome/papel/status
+    const { data: liberados, error: erroLiberados } = await admin
+      .from("matriculaia_usuarios")
+      .select("user_id, nome, papel, ativo, criado_em");
+    if (erroLiberados) throw erroLiberados;
+
+    const liberadosPorId = {};
+    (liberados || []).forEach(function (l) { liberadosPorId[l.user_id] = l; });
+
+    const usuarios = (listaAuth.users || [])
+      .map(function (u) {
+        const liberado = liberadosPorId[u.id];
+        return {
+          userId: u.id,
+          email: u.email,
+          nome: liberado ? liberado.nome : null,
+          temAcesso: !!liberado,
+          papel: liberado ? liberado.papel : null,
+          ativo: liberado ? liberado.ativo : false,
+          criadoEm: liberado ? liberado.criado_em : u.created_at
+        };
+      })
+      .sort(function (a, b) {
+        // quem ja tem acesso aparece primeiro, depois por e-mail
+        if (a.temAcesso !== b.temAcesso) return a.temAcesso ? -1 : 1;
+        return (a.email || "").localeCompare(b.email || "");
       });
-    }
 
     return res.status(200).json({ sucesso: true, usuarios: usuarios });
   } catch (err) {
