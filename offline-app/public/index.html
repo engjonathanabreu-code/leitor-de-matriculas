@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Integral Geo Matrícula — Ortofoto (offline)</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topo">
+    <div class="topo-titulo">
+      <h1>Ortofoto → divisão de lotes <span class="tag-offline">OFFLINE</span></h1>
+      <p>Aplicação local — roda nesta máquina. O arquivo original nunca sai do disco; só uma cópia reduzida da imagem é enviada à IA para a análise.</p>
+    </div>
+  </header>
+
+  <main class="conteudo">
+
+    <section class="cartao" id="secao-selecao">
+      <h2>1. Selecionar ortofoto</h2>
+      <p class="dica">Suporta arquivos grandes (centenas de MB) — JPG, PNG, WEBP, GIF, BMP ou TIFF/GeoTIFF. A leitura é feita direto do disco, sem upload.</p>
+
+      <div class="linha-caminho">
+        <input type="text" id="input-caminho" placeholder="Caminho completo do arquivo (ex: /home/usuario/Downloads/ortomosaico.tif)" autocomplete="off" />
+        <button type="button" class="btn btn-secundario" id="btn-alternar-navegador">Procurar…</button>
+        <button type="button" class="btn btn-primario" id="btn-carregar">Carregar</button>
+      </div>
+
+      <div class="navegador-pastas" id="navegador-pastas" hidden>
+        <div class="navegador-atalhos" id="navegador-atalhos"></div>
+        <div class="navegador-caminho-atual" id="navegador-caminho-atual"></div>
+        <div class="navegador-lista" id="navegador-lista"></div>
+      </div>
+
+      <p class="mensagem-erro" id="mensagem-erro-selecao" hidden></p>
+    </section>
+
+    <section class="cartao" id="secao-vazio">
+      <div class="estado-vazio" id="estado-vazio-texto">Nenhuma imagem carregada ainda.</div>
+    </section>
+
+    <section class="cartao" id="secao-viewer" hidden>
+      <h2>2. Editor de polígonos</h2>
+
+      <div class="barra-ferramentas">
+        <button type="button" class="btn btn-primario" id="btn-detectar">Detectar divisas com IA</button>
+        <button type="button" class="btn btn-secundario" id="btn-novo-poligono">+ Novo polígono manual</button>
+        <button type="button" class="btn btn-texto" id="btn-trocar-imagem">Trocar imagem</button>
+        <span class="status" id="status-texto"></span>
+      </div>
+
+      <p class="dica-desenho" id="dica-desenho" hidden>Clique na imagem para marcar os vértices do polígono. Clique no primeiro ponto (com 3+ vértices) para fechar.</p>
+      <div class="acoes-desenho" id="acoes-desenho" hidden>
+        <button type="button" class="btn btn-secundario btn-sm" id="btn-cancelar-desenho">Cancelar</button>
+        <button type="button" class="btn btn-primario btn-sm" id="btn-concluir-desenho">Concluir polígono</button>
+      </div>
+
+      <div class="area-imagem">
+        <img id="ortofoto-img" alt="Ortofoto carregada" />
+        <svg id="ortofoto-svg" preserveAspectRatio="none"></svg>
+      </div>
+
+      <div class="painel-lateral">
+        <div class="bloco">
+          <h3>Calibração geográfica (opcional)</h3>
+          <p class="dica">Marque 2 pontos de coordenada conhecida na imagem para converter área em m² e exportar GeoJSON georreferenciado (aproximado).</p>
+          <div id="lista-calibracao"></div>
+        </div>
+
+        <div class="bloco">
+          <h3>Polígonos</h3>
+          <div id="lista-poligonos"></div>
+        </div>
+
+        <div class="bloco">
+          <h3>Exportar</h3>
+          <div class="botoes-exportar">
+            <button type="button" class="btn btn-secundario" id="btn-export-geojson" disabled>GeoJSON</button>
+            <button type="button" class="btn btn-secundario" id="btn-export-svg">SVG</button>
+            <button type="button" class="btn btn-secundario" id="btn-export-png">PNG</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="rodape">
+      <p>Protótipo interno — Integral Soluções em Engenharia. A proposta da IA é sempre editável e deve ser conferida por profissional habilitado antes de qualquer uso oficial (desmembramento, georreferenciamento junto ao INCRA, protocolo em cartório).</p>
+    </footer>
+  </main>
+
+  <script src="lib/ortofoto.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

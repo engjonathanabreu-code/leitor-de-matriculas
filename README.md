@@ -144,3 +144,20 @@ e o mesmo Blob Store.
   ele ainda **não** é lido automaticamente neste protótipo - a calibração de
   2 pontos continua manual mesmo para GeoTIFF (aproveitar o georreferenciamento
   embutido automaticamente é uma melhoria natural para uma próxima versão).
+- **Arquivos muito grandes (centenas de MB, ex: GeoTIFF de drone) não cabem
+  no navegador** - para esses casos existe uma versão **offline** deste
+  mesmo protótipo, que roda localmente e não tem limite de tamanho de
+  arquivo. Veja `offline-app/README.md`.
+
+## 9. Versão offline (arquivos grandes demais para o navegador)
+
+A pasta `offline-app/` contém uma aplicação separada, que roda como um
+servidor local na própria máquina do usuário (`cd offline-app && npm
+install && npm start`). Ela resolve o mesmo problema do item 8
+("Ortofoto → divisão de lotes"), mas lendo o arquivo direto do disco e
+reduzindo a resolução localmente (via `sharp`/`libvips`, em streaming) antes
+de enviar só uma cópia pequena à IA - por isso não esbarra no limite de
+memória do navegador nem no limite de upload usado na versão web. Usa o
+mesmo agente de IA, o mesmo `lib/ortofoto.js` determinístico e o mesmo
+formato de exportação (GeoJSON/SVG/PNG). Detalhes completos em
+`offline-app/README.md`.
