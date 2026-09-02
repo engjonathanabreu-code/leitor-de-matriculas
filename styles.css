@@ -1165,3 +1165,171 @@ button, input{ font-family: inherit; }
 
 .proj-row--clicavel{ cursor: pointer; }
 .proj-row--clicavel:hover{ background: #f7f8fa; }
+
+/* ============================== ORTOFOTO (PROTOTIPO) ============================== */
+
+.nav-badge{
+  margin-left: auto;
+  background: rgba(255,255,255,0.14);
+  color: var(--sidebar-text-active);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.nav-item.active .nav-badge{ background: var(--accent); }
+
+.beta-tag{
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
+.tag-opcional{
+  display: inline-block;
+  background: var(--bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.ortofoto-toolbar{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.ortofoto-toolbar .btn{ width: auto; margin-top: 0; }
+.ortofoto-status{ color: var(--text-secondary); font-size: 13px; }
+
+.ortofoto-dica{
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.ortofoto-desenho-acoes{ display: flex; gap: 10px; align-items: center; margin: -4px 0 12px; }
+
+.ortofoto-viewer{
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #0c1220;
+  line-height: 0;
+}
+.ortofoto-viewer img{ width: 100%; height: auto; display: block; user-select: none; }
+.ortofoto-svg{
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  touch-action: none;
+}
+.ortofoto-legenda-editor{ color: var(--text-muted); font-size: 12.5px; margin: 10px 0 0; }
+
+.ortofoto-calib-lista{ display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.ortofoto-calib-item{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fafbfc;
+}
+.ortofoto-calib-titulo{ font-weight: 700; font-size: 13px; min-width: 62px; }
+.ortofoto-calib-campo{
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ortofoto-calib-campo input{
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-size: 13px;
+  width: 150px;
+  font-family: var(--font-mono);
+}
+.ortofoto-calib-campo input:focus{ outline: none; border-color: var(--accent); }
+.ortofoto-calib-pixel{ font-size: 12px; color: var(--text-muted); margin-left: auto; }
+.ortofoto-calib-ok{ color: var(--ok); font-size: 12.5px; font-weight: 600; margin: 4px 0 0; }
+.ortofoto-calib-pendente{ color: var(--text-muted); font-size: 12.5px; margin: 4px 0 0; }
+
+.ortofoto-alertas{
+  background: var(--warn-soft);
+  color: #7a5410;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.ortofoto-alertas p{ margin: 0 0 4px; }
+.ortofoto-alertas p:last-child{ margin-bottom: 0; }
+.ortofoto-obs-gerais{ color: var(--text-secondary); font-size: 13px; margin: 0 0 14px; }
+
+.ortofoto-poligono-card{
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.ortofoto-poligono-card:hover{ border-color: var(--border-strong); }
+.ortofoto-poligono-card--selecionado{ border-color: var(--accent); background: var(--accent-soft); }
+.ortofoto-poligono-cabecalho{ display: flex; align-items: center; gap: 10px; }
+.ortofoto-poligono-cor{ width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.ortofoto-poligono-rotulo{
+  border: 1px solid transparent;
+  background: transparent;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  flex: 1;
+  min-width: 0;
+}
+.ortofoto-poligono-rotulo:hover, .ortofoto-poligono-rotulo:focus{
+  border-color: var(--border-strong);
+  background: #fff;
+  outline: none;
+}
+.ortofoto-poligono-cabecalho .btn-icon-text{ flex-shrink: 0; }
+.ortofoto-poligono-metricas{
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin: 8px 0 0 22px;
+}
+.ortofoto-poligono-evidencias{
+  margin: 8px 0 0 22px;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.ortofoto-poligono-evidencias li{ margin-bottom: 2px; }
+
+.export-btn:disabled{ opacity: 0.45; cursor: not-allowed; }
+.export-btn:disabled:hover{ border-color: var(--border); }
