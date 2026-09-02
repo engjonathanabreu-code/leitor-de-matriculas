@@ -5,6 +5,10 @@
       "maxDuration": 300,
       "memory": 1024
     },
+    "api/analisar-ortofoto.js": {
+      "maxDuration": 120,
+      "memory": 1024
+    },
     "api/blob-upload.js": {
       "maxDuration": 15
     }
