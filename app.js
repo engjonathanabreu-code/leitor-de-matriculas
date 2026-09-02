@@ -268,6 +268,7 @@
           if (state.map) setTimeout(function () { state.map.invalidateSize(); }, 50);
         }
         if (btn.dataset.view === "dados-extraidos") renderDadosExtraidos();
+        if (btn.dataset.view === "ortofoto") renderOrtofotoViewer();
         if (btn.dataset.view === "validacao") renderValidacao();
         if (btn.dataset.view === "exportacao") renderExportacao();
         if (btn.dataset.view === "projetos") renderProjetos();
@@ -2280,10 +2281,715 @@
     initTableActions();
     initExportButtons();
     initProjetos();
+    initOrtofoto();
 
     renderAllForActiveProject();
     renderProjetos();
     setStatusPill("idle", "Aguardando documento");
+  }
+
+  // ==========================================================================
+  // PROTOTIPO: ORTOFOTO -> DIVISAO DE LOTES
+  // ---------------------------------------------------------------------------
+  // Fluxo (mesmo espirito do resto do app - "secao 4" do cabecalho deste
+  // arquivo): a IA (api/analisar-ortofoto.js) so PROPOE poligonos, em
+  // coordenadas de pixel normalizadas, com base em evidencia visual (muros,
+  // cercas, alinhamentos, mudanca de textura). A partir dai, TUDO e
+  // deterministico e roda aqui no navegador (lib/ortofoto.js): area,
+  // georreferenciamento aproximado por 2 pontos de controle, edicao manual
+  // de vertices e exportacao. Nada e persistido no projeto/Supabase neste
+  // protótipo - o resultado existe so durante a sessao; exporte antes de
+  // trocar de imagem ou sair da pagina.
+  // ==========================================================================
+  var ORTOFOTO_MAX_BYTES = 20 * 1000 * 1000; // 20 MB, mesmo limite do restante do app
+  var ORTOFOTO_ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+  var ORTOFOTO_CORES = ["#1d4ed8", "#0d9488", "#b7791f", "#c0362c", "#7c3aed", "#0891b2", "#65a30d", "#db2777"];
+  var ORTOFOTO_SVGNS = "http://www.w3.org/2000/svg";
+
+  state.ortofoto = {
+    arquivo: null,
+    imagemUrl: null,
+    imagemDataUrl: null,
+    larguraNatural: 0,
+    alturaNatural: 0,
+    status: "idle", // idle | analisando | pronto | erro
+    statusMsg: "",
+    observacoesGerais: null,
+    alertasIA: [],
+    poligonos: [], // [{id, rotulo, vertices:[{x,y} em pixel natural], evidencias:[], confianca, editadoManualmente}]
+    poligonoSelecionadoId: null,
+    modoDesenho: false,
+    desenhoVertices: [],
+    calibracao: [null, null], // [{px,py,lat,lng}, {px,py,lat,lng}]
+    aguardandoCliquePara: null, // 0 ou 1 enquanto espera clique na imagem para marcar C1/C2
+    transform: null, // resultado de IntegralOrtofoto.calibrarTransformacao
+    arrastando: null
+  };
+
+  function ortofotoNovoId() {
+    return "og" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function clampNum(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  function svgEl(tag, attrs) {
+    var el = document.createElementNS(ORTOFOTO_SVGNS, tag);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  function resetOrtofotoEstado() {
+    var o = state.ortofoto;
+    if (o.imagemUrl) { try { URL.revokeObjectURL(o.imagemUrl); } catch (e) {} }
+    o.arquivo = null;
+    o.imagemUrl = null;
+    o.imagemDataUrl = null;
+    o.larguraNatural = 0;
+    o.alturaNatural = 0;
+    o.status = "idle";
+    o.statusMsg = "";
+    o.observacoesGerais = null;
+    o.alertasIA = [];
+    o.poligonos = [];
+    o.poligonoSelecionadoId = null;
+    o.modoDesenho = false;
+    o.desenhoVertices = [];
+    o.calibracao = [null, null];
+    o.aguardandoCliquePara = null;
+    o.transform = null;
+    o.arrastando = null;
+  }
+
+  function ortofotoShowUploadError(msg) {
+    var el = document.getElementById("ortofoto-upload-error");
+    el.hidden = false;
+    el.textContent = msg;
+  }
+  function ortofotoHideUploadError() {
+    var el = document.getElementById("ortofoto-upload-error");
+    el.hidden = true;
+    el.textContent = "";
+  }
+
+  function initOrtofoto() {
+    var dropzone = document.getElementById("dropzone-ortofoto");
+    var fileInput = document.getElementById("file-input-ortofoto");
+    var btnSelecionar = document.getElementById("btn-selecionar-ortofoto");
+
+    btnSelecionar.addEventListener("click", function () { fileInput.click(); });
+
+    ["dragenter", "dragover"].forEach(function (evt) {
+      dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.add("dragover"); });
+    });
+    ["dragleave", "drop"].forEach(function (evt) {
+      dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.remove("dragover"); });
+    });
+    dropzone.addEventListener("drop", function (e) {
+      if (e.dataTransfer.files && e.dataTransfer.files.length) handleOrtofotoArquivoSelecionado(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", function () {
+      if (fileInput.files && fileInput.files.length) handleOrtofotoArquivoSelecionado(fileInput.files[0]);
+      fileInput.value = "";
+    });
+
+    document.getElementById("btn-ortofoto-trocar-imagem").addEventListener("click", function () {
+      if (state.ortofoto.poligonos.length && !window.confirm("Trocar de imagem descarta os polígonos propostos/editados atuais (este protótipo ainda não salva no projeto). Continuar?")) return;
+      resetOrtofotoEstado();
+      renderOrtofotoViewer();
+    });
+
+    document.getElementById("btn-ortofoto-detectar").addEventListener("click", ortofotoDetectarDivisas);
+
+    document.getElementById("btn-ortofoto-novo-poligono").addEventListener("click", function () {
+      state.ortofoto.modoDesenho = true;
+      state.ortofoto.desenhoVertices = [];
+      document.getElementById("ortofoto-desenho-dica").hidden = false;
+      document.getElementById("ortofoto-desenho-acoes").hidden = false;
+      renderOrtofotoSVG();
+    });
+    document.getElementById("btn-ortofoto-cancelar-desenho").addEventListener("click", ortofotoCancelarDesenho);
+    document.getElementById("btn-ortofoto-concluir-desenho").addEventListener("click", ortofotoConcluirDesenho);
+
+    document.getElementById("btn-ortofoto-export-geojson").addEventListener("click", ortofotoExportarGeoJSON);
+    document.getElementById("btn-ortofoto-export-svg").addEventListener("click", ortofotoExportarSVG);
+    document.getElementById("btn-ortofoto-export-png").addEventListener("click", ortofotoExportarPNG);
+
+    renderOrtofotoViewer();
+  }
+
+  function handleOrtofotoArquivoSelecionado(file) {
+    ortofotoHideUploadError();
+    if (ORTOFOTO_ALLOWED_TYPES.indexOf(file.type) === -1) {
+      return ortofotoShowUploadError("Formato não suportado. Envie JPG, PNG ou WEBP.");
+    }
+    if (file.size > ORTOFOTO_MAX_BYTES) {
+      return ortofotoShowUploadError("Arquivo maior que 20 MB.");
+    }
+
+    resetOrtofotoEstado();
+    var o = state.ortofoto;
+    o.arquivo = file;
+    o.imagemUrl = URL.createObjectURL(file);
+
+    var probe = new Image();
+    probe.onload = function () {
+      o.larguraNatural = probe.naturalWidth;
+      o.alturaNatural = probe.naturalHeight;
+
+      // Canvas offscreen so para "achatar" a imagem em data URL, usada nas
+      // exportacoes (SVG/PNG) - nunca enviado a nenhum lugar, nem usado na
+      // analise (essa vai direto pro Vercel Blob a partir do File original).
+      try {
+        var canvas = document.createElement("canvas");
+        canvas.width = probe.naturalWidth;
+        canvas.height = probe.naturalHeight;
+        canvas.getContext("2d").drawImage(probe, 0, 0);
+        o.imagemDataUrl = canvas.toDataURL(file.type === "image/png" ? "image/png" : "image/jpeg", 0.92);
+      } catch (e) {
+        o.imagemDataUrl = null; // exportacoes de SVG/PNG ficam indisponiveis, mas a edicao continua normal
+      }
+
+      renderOrtofotoViewer();
+    };
+    probe.onerror = function () {
+      ortofotoShowUploadError("Não foi possível carregar esta imagem.");
+      resetOrtofotoEstado();
+      renderOrtofotoViewer();
+    };
+    probe.src = o.imagemUrl;
+  }
+
+  function renderOrtofotoViewer() {
+    var empty = document.getElementById("ortofoto-empty");
+    var content = document.getElementById("ortofoto-content");
+    var o = state.ortofoto;
+    if (!o.imagemUrl) {
+      empty.hidden = false;
+      content.hidden = true;
+      return;
+    }
+    empty.hidden = true;
+    content.hidden = false;
+
+    var img = document.getElementById("ortofoto-img");
+    if (img.getAttribute("src") !== o.imagemUrl) img.src = o.imagemUrl;
+
+    var svg = document.getElementById("ortofoto-svg");
+    svg.setAttribute("viewBox", "0 0 " + (o.larguraNatural || 1) + " " + (o.alturaNatural || 1));
+
+    document.getElementById("ortofoto-status").textContent = o.statusMsg || "";
+    document.getElementById("btn-ortofoto-detectar").disabled = o.status === "analisando";
+
+    renderOrtofotoSVG();
+    renderOrtofotoCalibracao();
+    renderOrtofotoPoligonosList();
+    atualizarBotaoExportGeoJSON();
+  }
+
+  /** Converte coordenadas de tela (evento de ponteiro) para pixel "natural" da imagem (mesmo espaco de coordenadas dos vertices). */
+  function ortofotoPixelFromEvent(evt) {
+    var svg = document.getElementById("ortofoto-svg");
+    var rect = svg.getBoundingClientRect();
+    var o = state.ortofoto;
+    var scaleX = rect.width ? o.larguraNatural / rect.width : 1;
+    var scaleY = rect.height ? o.alturaNatural / rect.height : 1;
+    var clientX = (evt.touches && evt.touches[0]) ? evt.touches[0].clientX : evt.clientX;
+    var clientY = (evt.touches && evt.touches[0]) ? evt.touches[0].clientY : evt.clientY;
+    return {
+      x: clampNum((clientX - rect.left) * scaleX, 0, o.larguraNatural),
+      y: clampNum((clientY - rect.top) * scaleY, 0, o.alturaNatural)
+    };
+  }
+
+  /** Redesenha TODO o overlay SVG (poligonos, alcas de edicao, desenho manual em andamento, pontos de calibracao) e reata os handlers de interacao. */
+  function renderOrtofotoSVG() {
+    var svg = document.getElementById("ortofoto-svg");
+    if (!svg) return;
+    svg.innerHTML = "";
+    var o = state.ortofoto;
+    var raioVertice = Math.max(6, o.larguraNatural * 0.005);
+    var raioMedio = Math.max(5, o.larguraNatural * 0.0038);
+    var fonte = Math.max(14, o.larguraNatural * 0.014);
+
+    o.poligonos.forEach(function (poly, pi) {
+      var cor = ORTOFOTO_CORES[pi % ORTOFOTO_CORES.length];
+      var selecionado = poly.id === o.poligonoSelecionadoId;
+
+      var polygonEl = svgEl("polygon", {
+        points: poly.vertices.map(function (v) { return v.x + "," + v.y; }).join(" "),
+        fill: cor,
+        "fill-opacity": selecionado ? "0.30" : "0.15",
+        stroke: cor,
+        "stroke-width": selecionado ? "3.5" : "2.5"
+      });
+      polygonEl.style.cursor = "pointer";
+      polygonEl.addEventListener("click", function (e) {
+        e.stopPropagation();
+        o.poligonoSelecionadoId = (o.poligonoSelecionadoId === poly.id) ? null : poly.id;
+        renderOrtofotoSVG();
+        renderOrtofotoPoligonosList();
+      });
+      svg.appendChild(polygonEl);
+
+      if (poly.vertices[0]) {
+        var label = svgEl("text", {
+          x: poly.vertices[0].x, y: Math.max(fonte, poly.vertices[0].y - 10),
+          fill: cor, "font-size": fonte, "font-weight": "700", "font-family": "Inter, sans-serif",
+          "paint-order": "stroke", stroke: "#fff", "stroke-width": "3"
+        });
+        label.textContent = poly.rotulo || "";
+        svg.appendChild(label);
+      }
+
+      // pontos medios de cada aresta - clicar adiciona um vertice novo ali
+      for (var i = 0; i < poly.vertices.length; i++) {
+        var a = poly.vertices[i];
+        var b = poly.vertices[(i + 1) % poly.vertices.length];
+        var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        var mid = svgEl("rect", {
+          x: mx - raioMedio, y: my - raioMedio, width: raioMedio * 2, height: raioMedio * 2,
+          transform: "rotate(45 " + mx + " " + my + ")",
+          fill: "#fff", stroke: cor, "stroke-width": "2", "fill-opacity": "0.9"
+        });
+        mid.style.cursor = "copy";
+        (function (polyRef, idx, midX, midY) {
+          mid.addEventListener("click", function (e) {
+            e.stopPropagation();
+            polyRef.vertices.splice(idx + 1, 0, { x: midX, y: midY });
+            polyRef.editadoManualmente = true;
+            renderOrtofotoSVG();
+            renderOrtofotoPoligonosList();
+          });
+        })(poly, i, mx, my);
+        svg.appendChild(mid);
+      }
+
+      // vertices - arrastar para mover, botao direito para remover
+      poly.vertices.forEach(function (v, vi) {
+        var circ = svgEl("circle", { cx: v.x, cy: v.y, r: raioVertice, fill: cor, stroke: "#fff", "stroke-width": "2" });
+        circ.style.cursor = "grab";
+        circ.addEventListener("pointerdown", function (e) {
+          if (e.button != null && e.button !== 0) return; // so botao esquerdo arrasta - direito e tratado no contextmenu
+          e.stopPropagation();
+          e.preventDefault();
+          o.arrastando = { tipo: "vertice", polyId: poly.id, verticeIndex: vi };
+          try { circ.setPointerCapture(e.pointerId); } catch (err) {}
+        });
+        circ.addEventListener("contextmenu", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (poly.vertices.length <= 3) { alert("Um polígono precisa de pelo menos 3 vértices."); return; }
+          poly.vertices.splice(vi, 1);
+          poly.editadoManualmente = true;
+          renderOrtofotoSVG();
+          renderOrtofotoPoligonosList();
+        });
+        svg.appendChild(circ);
+      });
+    });
+
+    // desenho manual em andamento
+    if (o.modoDesenho && o.desenhoVertices.length) {
+      if (o.desenhoVertices.length >= 2) {
+        svg.appendChild(svgEl("polyline", {
+          points: o.desenhoVertices.map(function (v) { return v.x + "," + v.y; }).join(" "),
+          fill: "none", stroke: "#1d4ed8", "stroke-width": "2.5", "stroke-dasharray": "6 4"
+        }));
+      }
+      o.desenhoVertices.forEach(function (v, i) {
+        var c = svgEl("circle", { cx: v.x, cy: v.y, r: raioVertice, fill: "#1d4ed8", stroke: "#fff", "stroke-width": "2" });
+        if (i === 0 && o.desenhoVertices.length >= 3) {
+          c.style.cursor = "pointer";
+          c.addEventListener("click", function (e) { e.stopPropagation(); ortofotoConcluirDesenho(); });
+        }
+        svg.appendChild(c);
+      });
+    }
+
+    // pontos de calibracao geografica
+    o.calibracao.forEach(function (cal, idx) {
+      if (!cal || cal.px == null) return;
+      var g = svgEl("g", {});
+      var c = svgEl("circle", { cx: cal.px, cy: cal.py, r: raioVertice + 1, fill: "#c0362c", stroke: "#fff", "stroke-width": "2" });
+      c.style.cursor = "grab";
+      c.addEventListener("pointerdown", function (e) {
+        if (e.button != null && e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        o.arrastando = { tipo: "calibracao", indice: idx };
+        try { c.setPointerCapture(e.pointerId); } catch (err) {}
+      });
+      var t = svgEl("text", {
+        x: cal.px + raioVertice + 6, y: cal.py - raioVertice,
+        fill: "#c0362c", "font-size": fonte, "font-weight": "700",
+        "paint-order": "stroke", stroke: "#fff", "stroke-width": "3"
+      });
+      t.textContent = "C" + (idx + 1);
+      g.appendChild(c);
+      g.appendChild(t);
+      svg.appendChild(g);
+    });
+
+    svg.onclick = function (e) {
+      // Evita que o "click" sintetico apos soltar um arrastar (vertice ou
+      // ponto de calibracao) seja interpretado como um clique novo (ex:
+      // adicionar vertice de desenho manual ou marcar calibracao de novo).
+      if (o._suprimirProximoClick) { o._suprimirProximoClick = false; return; }
+      var pt = ortofotoPixelFromEvent(e);
+      if (o.aguardandoCliquePara != null) {
+        var idx = o.aguardandoCliquePara;
+        o.calibracao[idx] = o.calibracao[idx] || {};
+        o.calibracao[idx].px = pt.x;
+        o.calibracao[idx].py = pt.y;
+        o.aguardandoCliquePara = null;
+        recalcularTransformOrtofoto();
+        renderOrtofotoSVG();
+        renderOrtofotoCalibracao();
+        document.getElementById("ortofoto-status").textContent = o.statusMsg || "";
+        return;
+      }
+      if (o.modoDesenho) {
+        o.desenhoVertices.push(pt);
+        renderOrtofotoSVG();
+      }
+    };
+
+    svg.onpointermove = function (e) {
+      if (!o.arrastando) return;
+      var pt = ortofotoPixelFromEvent(e);
+      if (o.arrastando.tipo === "vertice") {
+        var poly = o.poligonos.filter(function (p) { return p.id === o.arrastando.polyId; })[0];
+        if (!poly) return;
+        poly.vertices[o.arrastando.verticeIndex] = pt;
+        poly.editadoManualmente = true;
+      } else if (o.arrastando.tipo === "calibracao") {
+        var cal = o.calibracao[o.arrastando.indice];
+        if (!cal) return;
+        cal.px = pt.x; cal.py = pt.y;
+        recalcularTransformOrtofoto();
+      }
+      renderOrtofotoSVG();
+    };
+    svg.onpointerup = function () {
+      var eraVertice = o.arrastando && o.arrastando.tipo === "vertice";
+      var eraCalib = o.arrastando && o.arrastando.tipo === "calibracao";
+      if (eraVertice || eraCalib) o._suprimirProximoClick = true;
+      o.arrastando = null;
+      if (eraVertice) renderOrtofotoPoligonosList();
+      if (eraCalib) renderOrtofotoCalibracao();
+    };
+    svg.onpointerleave = function () { o.arrastando = null; };
+  }
+
+  function ortofotoCancelarDesenho() {
+    state.ortofoto.modoDesenho = false;
+    state.ortofoto.desenhoVertices = [];
+    document.getElementById("ortofoto-desenho-dica").hidden = true;
+    document.getElementById("ortofoto-desenho-acoes").hidden = true;
+    renderOrtofotoSVG();
+  }
+
+  function ortofotoConcluirDesenho() {
+    var verts = state.ortofoto.desenhoVertices;
+    if (verts.length < 3) { alert("Desenhe pelo menos 3 pontos para formar um polígono."); return; }
+    state.ortofoto.poligonos.push({
+      id: ortofotoNovoId(),
+      rotulo: "Lote manual " + (state.ortofoto.poligonos.length + 1),
+      vertices: verts.slice(),
+      evidencias: ["Desenhado manualmente pelo usuário."],
+      confianca: 1,
+      editadoManualmente: true
+    });
+    ortofotoCancelarDesenho();
+    renderOrtofotoPoligonosList();
+    atualizarBotaoExportGeoJSON();
+  }
+
+  function recalcularTransformOrtofoto() {
+    var o = state.ortofoto;
+    var pontos = o.calibracao.filter(function (c) {
+      return c && c.px != null && c.py != null && isFinite(c.lat) && isFinite(c.lng);
+    });
+    o.transform = pontos.length === 2 ? IntegralOrtofoto.calibrarTransformacao(pontos) : null;
+    atualizarBotaoExportGeoJSON();
+  }
+
+  function atualizarBotaoExportGeoJSON() {
+    var btn = document.getElementById("btn-ortofoto-export-geojson");
+    if (!btn) return;
+    btn.disabled = !state.ortofoto.transform || !state.ortofoto.poligonos.length;
+  }
+
+  function renderOrtofotoCalibracao() {
+    var wrap = document.getElementById("ortofoto-calibracao-lista");
+    if (!wrap) return;
+    var o = state.ortofoto;
+    var html = "";
+    for (var i = 0; i < 2; i++) {
+      var cal = o.calibracao[i];
+      html += '<div class="ortofoto-calib-item">';
+      html += '<span class="ortofoto-calib-titulo">Ponto C' + (i + 1) + "</span>";
+      html += '<button class="btn btn-secondary btn-sm" data-marcar-calib="' + i + '" type="button">' +
+        (cal && cal.px != null ? "Remarcar na imagem" : "Marcar na imagem") + "</button>";
+      html += '<label class="ortofoto-calib-campo"><span>Latitude</span><input type="text" inputmode="decimal" placeholder="ex: -26.337412" data-calib-lat="' + i + '" value="' + (cal && cal.lat != null ? cal.lat : "") + '" /></label>';
+      html += '<label class="ortofoto-calib-campo"><span>Longitude</span><input type="text" inputmode="decimal" placeholder="ex: -49.123456" data-calib-lng="' + i + '" value="' + (cal && cal.lng != null ? cal.lng : "") + '" /></label>';
+      html += '<span class="ortofoto-calib-pixel">' + (cal && cal.px != null ? "pixel (" + Math.round(cal.px) + ", " + Math.round(cal.py) + ")" : "posição não marcada") + "</span>";
+      html += "</div>";
+    }
+    if (o.transform) {
+      html += '<p class="ortofoto-calib-ok">✓ Calibração ativa · escala aproximada: ' + o.transform.escalaMetrosPorPixel.toFixed(4) + " m/pixel (georreferenciamento aproximado - conferir com levantamento antes de uso oficial).</p>";
+    } else {
+      html += '<p class="ortofoto-calib-pendente">Marque os 2 pontos na imagem e informe latitude/longitude de cada um para ativar a exportação georreferenciada.</p>';
+    }
+    wrap.innerHTML = html;
+
+    wrap.querySelectorAll("[data-marcar-calib]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        o.aguardandoCliquePara = parseInt(btn.dataset.marcarCalib, 10);
+        document.getElementById("ortofoto-status").textContent = "Clique na imagem para marcar o ponto C" + (o.aguardandoCliquePara + 1) + "...";
+      });
+    });
+    wrap.querySelectorAll("[data-calib-lat]").forEach(function (input) {
+      input.addEventListener("change", function () {
+        var idx = parseInt(input.dataset.calibLat, 10);
+        o.calibracao[idx] = o.calibracao[idx] || {};
+        o.calibracao[idx].lat = parseFloat(String(input.value).replace(",", "."));
+        recalcularTransformOrtofoto();
+        renderOrtofotoCalibracao();
+      });
+    });
+    wrap.querySelectorAll("[data-calib-lng]").forEach(function (input) {
+      input.addEventListener("change", function () {
+        var idx = parseInt(input.dataset.calibLng, 10);
+        o.calibracao[idx] = o.calibracao[idx] || {};
+        o.calibracao[idx].lng = parseFloat(String(input.value).replace(",", "."));
+        recalcularTransformOrtofoto();
+        renderOrtofotoCalibracao();
+      });
+    });
+  }
+
+  async function ortofotoDetectarDivisas() {
+    var o = state.ortofoto;
+    if (!o.arquivo || o.status === "analisando") return;
+
+    o.status = "analisando";
+    o.statusMsg = "Enviando imagem...";
+    document.getElementById("ortofoto-status").textContent = o.statusMsg;
+    document.getElementById("btn-ortofoto-detectar").disabled = true;
+
+    try {
+      var blobUrl = await withTimeout(
+        uploadToBlob(o.arquivo, function (progress) {
+          o.statusMsg = "Enviando imagem... " + Math.round(progress.percentage) + "%";
+          document.getElementById("ortofoto-status").textContent = o.statusMsg;
+        }),
+        120000,
+        "O envio da imagem demorou demais e foi cancelado (mais de 2 minutos)."
+      );
+
+      o.statusMsg = "Analisando ortofoto com IA...";
+      document.getElementById("ortofoto-status").textContent = o.statusMsg;
+
+      var resp = await withTimeout(
+        fetch("/api/analisar-ortofoto", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + (window.__auth ? window.__auth.getAccessToken() : "")
+          },
+          body: JSON.stringify({
+            filename: o.arquivo.name,
+            mimeType: o.arquivo.type || guessMimeFromName(o.arquivo.name),
+            blobUrl: blobUrl
+          })
+        }),
+        150000,
+        "A análise demorou demais e foi cancelada (mais de 2:30min)."
+      );
+
+      var json = await resp.json();
+      if (!resp.ok || !json.sucesso) {
+        throw new Error((json && json.erro) || "Falha ao analisar a ortofoto.");
+      }
+
+      var dados = json.dados;
+      var novosPoligonos = (dados.poligonos || [])
+        .map(function (p, idx) {
+          return {
+            id: ortofotoNovoId(),
+            rotulo: p.rotulo || ("Lote " + (o.poligonos.length + idx + 1)),
+            vertices: (p.vertices || []).map(function (v) {
+              return { x: clampNum(v.x, 0, 1) * o.larguraNatural, y: clampNum(v.y, 0, 1) * o.alturaNatural };
+            }),
+            evidencias: p.evidencias || [],
+            confianca: p.confianca != null ? p.confianca : null,
+            editadoManualmente: false
+          };
+        })
+        .filter(function (p) { return p.vertices.length >= 3; });
+
+      o.poligonos = o.poligonos.concat(novosPoligonos);
+      o.observacoesGerais = dados.observacoes_gerais || null;
+      o.alertasIA = dados.alertas || [];
+      o.status = "pronto";
+      o.statusMsg = novosPoligonos.length
+        ? novosPoligonos.length + " polígono(s) proposto(s) - confira e ajuste antes de exportar."
+        : "Nenhuma divisa clara identificada nesta imagem.";
+    } catch (err) {
+      o.status = "erro";
+      o.statusMsg = (err && err.message) || "Falha ao detectar divisas.";
+    }
+
+    document.getElementById("btn-ortofoto-detectar").disabled = false;
+    renderOrtofotoViewer();
+  }
+
+  function renderOrtofotoPoligonosList() {
+    var wrap = document.getElementById("ortofoto-poligonos-lista");
+    if (!wrap) return;
+    var o = state.ortofoto;
+
+    var htmlExtra = "";
+    if (o.alertasIA && o.alertasIA.length) {
+      htmlExtra += '<div class="ortofoto-alertas">' + o.alertasIA.map(function (a) { return "<p>⚠ " + esc(a) + "</p>"; }).join("") + "</div>";
+    }
+    if (o.observacoesGerais) {
+      htmlExtra += '<p class="ortofoto-obs-gerais">' + esc(o.observacoesGerais) + "</p>";
+    }
+
+    if (!o.poligonos.length) {
+      wrap.innerHTML = htmlExtra + '<div class="empty-state-inline">Nenhum polígono ainda. Use "Detectar divisas com IA" ou desenhe manualmente.</div>';
+      return;
+    }
+
+    var rows = o.poligonos.map(function (poly, i) {
+      var areaPx = IntegralOrtofoto.areaShoelacePx(poly.vertices);
+      var areaTexto;
+      if (o.transform) {
+        var areaM2 = areaPx * Math.pow(o.transform.escalaMetrosPorPixel, 2);
+        poly._areaM2 = areaM2;
+        areaTexto = areaM2.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " m² (aprox.)";
+      } else {
+        poly._areaM2 = null;
+        areaTexto = Math.round(areaPx).toLocaleString("pt-BR") + " px²";
+      }
+      var cor = ORTOFOTO_CORES[i % ORTOFOTO_CORES.length];
+      var confTexto = poly.confianca != null ? Math.round(poly.confianca * 100) + "%" : "—";
+      var evidenciasHtml = (poly.evidencias || []).map(function (ev) { return "<li>" + esc(ev) + "</li>"; }).join("");
+
+      return (
+        '<div class="ortofoto-poligono-card' + (poly.id === o.poligonoSelecionadoId ? " ortofoto-poligono-card--selecionado" : "") + '" data-poly-row="' + poly.id + '">' +
+          '<div class="ortofoto-poligono-cabecalho">' +
+            '<span class="ortofoto-poligono-cor" style="background:' + cor + '"></span>' +
+            '<input type="text" class="ortofoto-poligono-rotulo" value="' + esc(poly.rotulo) + '" data-poly-rotulo="' + poly.id + '" />' +
+            (poly.editadoManualmente ? '<span class="tag-opcional">editado</span>' : "") +
+            '<button class="btn-icon-text" type="button" data-poly-remover="' + poly.id + '">Remover</button>' +
+          "</div>" +
+          '<div class="ortofoto-poligono-metricas">' +
+            "<span><strong>" + poly.vertices.length + "</strong> vértices</span>" +
+            "<span><strong>" + areaTexto + "</strong></span>" +
+            "<span>Confiança da IA: <strong>" + confTexto + "</strong></span>" +
+          "</div>" +
+          (evidenciasHtml ? '<ul class="ortofoto-poligono-evidencias">' + evidenciasHtml + "</ul>" : "") +
+        "</div>"
+      );
+    }).join("");
+
+    wrap.innerHTML = htmlExtra + rows;
+
+    wrap.querySelectorAll("[data-poly-row]").forEach(function (card) {
+      card.addEventListener("click", function (e) {
+        if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+        var id = card.dataset.polyRow;
+        o.poligonoSelecionadoId = (o.poligonoSelecionadoId === id) ? null : id;
+        renderOrtofotoSVG();
+        renderOrtofotoPoligonosList();
+      });
+    });
+    wrap.querySelectorAll("[data-poly-rotulo]").forEach(function (input) {
+      input.addEventListener("change", function () {
+        var poly = o.poligonos.filter(function (p) { return p.id === input.dataset.polyRotulo; })[0];
+        if (poly) poly.rotulo = input.value.trim() || poly.rotulo;
+        renderOrtofotoSVG();
+      });
+    });
+    wrap.querySelectorAll("[data-poly-remover]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        o.poligonos = o.poligonos.filter(function (p) { return p.id !== btn.dataset.polyRemover; });
+        if (o.poligonoSelecionadoId === btn.dataset.polyRemover) o.poligonoSelecionadoId = null;
+        renderOrtofotoSVG();
+        renderOrtofotoPoligonosList();
+      });
+    });
+
+    atualizarBotaoExportGeoJSON();
+  }
+
+  function ortofotoNomeBase() {
+    var nomeArquivo = ((state.ortofoto.arquivo && state.ortofoto.arquivo.name) || "ortofoto").replace(/\.[^.]+$/, "");
+    return "integral-ortofoto-" + nomeArquivo.replace(/[^a-z0-9]+/gi, "-");
+  }
+
+  function ortofotoExportarGeoJSON() {
+    var o = state.ortofoto;
+    if (!o.transform || !o.poligonos.length) return;
+    o.poligonos.forEach(function (p) {
+      p._areaM2 = IntegralOrtofoto.areaShoelacePx(p.vertices) * Math.pow(o.transform.escalaMetrosPorPixel, 2);
+    });
+    var geojson = IntegralOrtofoto.poligonosParaGeoJSON(o.poligonos, o.transform, {
+      arquivo_origem: o.arquivo ? o.arquivo.name : null,
+      escala_aproximada_m_por_pixel: o.transform.escalaMetrosPorPixel
+    });
+    downloadBlob(JSON.stringify(geojson, null, 2), ortofotoNomeBase() + ".geojson", "application/geo+json");
+  }
+
+  function ortofotoExportarSVG() {
+    var o = state.ortofoto;
+    if (!o.poligonos.length) return alert("Nenhum polígono para exportar.");
+    var svgStr = IntegralOrtofoto.poligonosParaSVG(o.imagemDataUrl, o.larguraNatural, o.alturaNatural, o.poligonos, ORTOFOTO_CORES);
+    downloadBlob(svgStr, ortofotoNomeBase() + ".svg", "image/svg+xml");
+  }
+
+  function ortofotoExportarPNG() {
+    var o = state.ortofoto;
+    if (!o.imagemDataUrl) return alert("Imagem indisponível para exportação em PNG.");
+    if (!o.poligonos.length) return alert("Nenhum polígono para exportar.");
+    var canvas = document.createElement("canvas");
+    canvas.width = o.larguraNatural;
+    canvas.height = o.alturaNatural;
+    var ctx = canvas.getContext("2d");
+    var imgEl = new Image();
+    imgEl.onload = function () {
+      ctx.drawImage(imgEl, 0, 0, o.larguraNatural, o.alturaNatural);
+      o.poligonos.forEach(function (p, i) {
+        if (p.vertices.length < 3) return;
+        var cor = ORTOFOTO_CORES[i % ORTOFOTO_CORES.length];
+        ctx.beginPath();
+        p.vertices.forEach(function (v, vi) { if (vi === 0) ctx.moveTo(v.x, v.y); else ctx.lineTo(v.x, v.y); });
+        ctx.closePath();
+        ctx.fillStyle = cor + "2e";
+        ctx.fill();
+        ctx.lineWidth = Math.max(2, o.larguraNatural * 0.0025);
+        ctx.strokeStyle = cor;
+        ctx.stroke();
+        ctx.fillStyle = cor;
+        ctx.font = "bold " + Math.max(16, o.larguraNatural * 0.016) + "px sans-serif";
+        ctx.fillText(p.rotulo || "", p.vertices[0].x, Math.max(20, p.vertices[0].y - 8));
+      });
+      canvas.toBlob(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = ortofotoNomeBase() + ".png";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      }, "image/png");
+    };
+    imgEl.src = o.imagemDataUrl;
   }
 
   window.IntegralApp = { goToView: goToView };
