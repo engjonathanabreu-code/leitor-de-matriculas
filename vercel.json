@@ -11,6 +11,10 @@
     },
     "api/blob-upload.js": {
       "maxDuration": 15
+    },
+    "api/integracao-nui.js": {
+      "maxDuration": 300,
+      "memory": 1024
     }
   }
 }
